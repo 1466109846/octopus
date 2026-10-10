@@ -30,23 +30,25 @@
 
 ### 🐳 Docker
 
-Run directly:
+Build this fork's container locally (this release publishes binaries, not a GHCR image):
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 ghcr.io/xiaocqaq/octopus:latest
+git clone https://github.com/1466109846/octopus.git
+cd octopus
+docker build -f scripts/dockerfile/Dockerfile -t octopus:local .
+docker run -d --name octopus -v /path/to/data:/app/data -p 18874:18874 octopus:local
 ```
 
-Or use docker compose:
+Or build via docker compose from this checkout:
 
 ```bash
-wget https://raw.githubusercontent.com/xiaocqaq/octopus/refs/heads/master/docker-compose.yml
-docker compose up -d
+docker compose up -d --build
 ```
 
 
 ### 📦 Download from Release
 
-Download the binary for your platform from [Releases](https://github.com/xiaocqaq/octopus/releases), then run:
+Download the binary for your platform from [Releases](https://github.com/1466109846/octopus/releases), then run:
 
 ```bash
 ./octopus start
@@ -55,13 +57,13 @@ Download the binary for your platform from [Releases](https://github.com/xiaocqa
 ### 🛠️ Build from Source
 
 **Requirements:**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
+- Go 1.26.4
+- Node.js 24+
+- pnpm 10+
 
 ```bash
 # Clone the forked repository
-git clone https://github.com/xiaocqaq/octopus.git
+git clone https://github.com/1466109846/octopus.git
 cd octopus
 # Build frontend
 cd web && pnpm install && pnpm run build
@@ -83,7 +85,7 @@ http://localhost:5173
 
 ### 🔐 Default Credentials
 
-After first launch, visit http://localhost:8080 and log in to the management panel with:
+After first launch, visit http://localhost:18874 and log in to the management panel with:
 
 - **Username**: `admin`
 - **Password**: `admin`
@@ -100,7 +102,7 @@ The configuration file is located at `data/config.json` by default and is automa
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 18874
   },
   "database": {
     "type": "sqlite",
@@ -117,7 +119,7 @@ The configuration file is located at `data/config.json` by default and is automa
 | Option | Description | Default |
 |--------|-------------|---------|
 | `server.host` | Listen address | `0.0.0.0` |
-| `server.port` | Server port | `8080` |
+| `server.port` | Server port | `18874` |
 | `database.type` | Database type | `sqlite` |
 | `database.path` | Database connection string | `data/data.db` |
 | `log.level` | Log level | `info` |
@@ -266,6 +268,18 @@ Probe requests now send a human-sounding radio-check phrase:
 
 The model promptly replies with a short answer, keeping the original minimal-cost path (`max_tokens` stays 16; timeouts and verdict semantics are unchanged). If this phrase ever gets fingerprinted too, only the `probePrompt` constant in `internal/relay/probe.go` needs a change and a rebuild.
 
+### 💓 Keepalive
+
+> **Why**: Some upstreams require you to keep the session active — queue-based or activity-gated services can drop you out of the queue when no traffic arrives for a while. Model Monitor answers "is this channel healthy?", which is not the same question: its failures cool the channel down, and in queue scenarios a rejection (HTTP 429) is normal, so a monitor-style cooldown would punish a perfectly fine channel.
+
+The **Keepalive** page sends a minimal request to each selected channel/credential on an interval (default **5 minutes**) to *attempt* to maintain upstream activity and a queue slot:
+
+- Queue, interval amortization, credential rotation and per-credential rows are shared with Model Monitor (same task table, split by task kind); the two pages never mix.
+- Each row shows the latest heartbeat's status chip, **HTTP status code** and latency: `429/503` means the request reached the upstream but was rejected; no status code usually means a timeout, network failure or local configuration problem. **A response code alone does not prove the upstream reserved your queue slot**.
+- **Display only, never routing**: a failed keepalive does not cool the channel down, does not lower its health score and never affects failover — exactly the opposite of what you would want here.
+- Keepalive always sends the minimal probe request (never the candy/IQ question), and runs all day (no time window) to avoid prolonged periods of inactivity; it cannot guarantee that an upstream will keep your queue position.
+- Manual "keepalive now" works per credential or for the whole task, with per-row verdicts.
+
 ### 📁 Group Management
 
 Groups aggregate multiple channels into a unified external model name.
@@ -328,7 +342,7 @@ from openai import OpenAI
 import os
 
 client = OpenAI(   
-    base_url="http://127.0.0.1:8080/v1",   
+    base_url="http://127.0.0.1:18874/v1",
     api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
 )
 completion = client.chat.completions.create(
@@ -347,7 +361,7 @@ Passthrough for `/v1/images/generations` and `/v1/images/edits`. Currently only 
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="sk-octopus-...")
+client = OpenAI(base_url="http://127.0.0.1:18874/v1", api_key="sk-octopus-...")
 resp = client.images.generate(prompt="a cat wearing sunglasses", n=1, size="1024x1024")
 print(resp.data[0].url)
 ```
@@ -359,7 +373,7 @@ Edit `~/.claude/settings.json`
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:18874",
     "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -383,7 +397,7 @@ model_provider = "octopus"
 preferred_auth_method = "apikey"
 
 [model_providers.octopus]
-base_url = "http://127.0.0.1:8080/v1"
+base_url = "http://127.0.0.1:18874/v1"
 name = "octopus"
 supports_websockets = false
 requires_openai_auth = true

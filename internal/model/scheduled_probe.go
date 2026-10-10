@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // 定时测活时间窗的星期掩码位: 第 0 位为周一, 依次排到第 6 位为周日。
 // 与 time.Weekday(周日为 0)刻意错开, 而与界面上的星期顺序一致: 界面从周一开始列,
@@ -25,7 +28,48 @@ const (
 	ScheduledProbeMinIntervalMinutes     = 1
 	ScheduledProbeMaxIntervalMinutes     = 1440
 	ScheduledProbeDefaultIntervalMinutes = 10
+	// KeepaliveDefaultIntervalMinutes 是保活任务的默认间隔。
+	// 比监控的 10 分钟紧一档: 保活针对的是"排队/活跃度"场景, 队列掉出的速度通常比通道变坏快,
+	// 5 分钟是这个场景够用的最粗粒度; 嫌密可自行调大。
+	KeepaliveDefaultIntervalMinutes = 5
 )
+
+// 任务种类: 同一张表、同一个调度器, 靠这一个字段分流"测出来的结论往哪落、要不要影响选路"。
+//
+// 用 kind 而不是另建一张表/另起一套调度: 两类任务在轮转、间隔均摊、时间窗、凭据排除上的语义完全一致,
+// 分成两套就要把那些逻辑复制两份并保持同步; 差别只在"落点"(监控落路由状态、保活只落结论)
+// 与"发什么"(监控可发糖果题、保活只发最小请求), 用一处分叉表达刚好。
+const (
+	// ScheduledProbeKindMonitor 是模型监控: 结论落路由状态, 失败即冷却, 参与选路。
+	ScheduledProbeKindMonitor = "monitor"
+	// ScheduledProbeKindKeepalive 是保活: 只维持上游活跃/排队位, 结论只展示, 失败不冷却不降分。
+	// 排队场景里"失败"(如队列已满的 429)是常态, 若照监控语义冷却渠道, 会把一条正常渠道越保越死。
+	ScheduledProbeKindKeepalive = "keepalive"
+)
+
+// ValidProbeKinds 是任务种类允许的取值集合, 供校验与归一化共用。
+// 只有 monitor 与 keepalive 两种: 见上面两个常量。
+var ValidProbeKinds = map[string]bool{
+	ScheduledProbeKindMonitor:   true,
+	ScheduledProbeKindKeepalive: true,
+}
+
+// ValidateProbeKind 校验提交的任务种类。
+//
+// 空串(缺省/存量兼容)与两个已知种类都通过; 其余任何非空值一律拒绝 —— 未知种类若被静默
+// 回落到 monitor, 会让一条本意是保活的任务悄悄变成监控(反之亦然), 结论落点与调度语义全错,
+// 而界面上只会看到"结论落到了错误的那张表上", 没有任何报错提示。
+//
+// 拒绝发生在落库之前: 调用方据此回 400, 而不是把错误种类的任务写进库里再靠归一化兜底。
+func ValidateProbeKind(kind string) error {
+	if kind == "" {
+		return nil
+	}
+	if ValidProbeKinds[kind] {
+		return nil
+	}
+	return fmt.Errorf("invalid scheduled probe kind %q", kind)
+}
 
 // ScheduledProbe 是一条定时测活任务: 一个自定义名字下面挂若干个被监控的目标。
 //
@@ -36,10 +80,14 @@ const (
 // 名字由用户自定, 通常就是模型名; 不拿目标反推名字: 一个任务挂了三个模型时,
 // 界面上需要一个能概括它们的称呼, 而这个称呼只有用户知道该怎么起。
 type ScheduledProbe struct {
-	ID   int    `json:"id" gorm:"primaryKey"`                  // 任务主键。
-	Name string `json:"name" gorm:"not null;default:''"`       // 任务的自定义名字, 界面上通常就是模型名。
-	IntervalMinutes int `json:"interval_minutes" gorm:"not null;default:10"` // 两次探测之间的间隔分钟数。
-	Enabled         bool `json:"enabled" gorm:"not null;default:true"`       // 是否参与调度; 停用后不再探测, 配置保留。
+	ID   int    `json:"id" gorm:"primaryKey"`            // 任务主键。
+	Name string `json:"name" gorm:"not null;default:''"` // 任务的自定义名字, 界面上通常就是模型名。
+	// Kind 区分这条任务是模型监控还是保活, 见上面两个常量。
+	// 默认给 monitor 而不是空串: 存量行(升级前创建)没有这个列, AutoMigrate 加列时用默认值回填,
+	// 落回"照常监控"—— 这是升级时唯一安全的解释, 空串则会让老任务的结论落点无从判断。
+	Kind            string `json:"kind" gorm:"not null;default:'monitor'"`
+	IntervalMinutes int    `json:"interval_minutes" gorm:"not null;default:10"` // 两次探测之间的间隔分钟数。
+	Enabled         bool   `json:"enabled" gorm:"not null;default:true"`        // 是否参与调度; 停用后不再探测, 配置保留。
 	// IQDisabled 标记这条任务是否跳过糖果测试, 只发通信测试话术测可用性。
 	//
 	// 记"关掉"而不是"打开": 零值即"测糖果", 于是老任务、老请求体、以及任何没带这个字段的调用方
@@ -80,8 +128,20 @@ type ScheduledProbe struct {
 //
 // 用一个取反的访问器而不是让调用方各自写 !probe.IQDisabled: 调度器判断的是"问什么",
 // 而字段存的是"关没关", 这个转换只该有一处; 将来若再加一层全局开关, 也只改这里。
+//
+// 保活任务永远为假: 保活的请求是"最小成本的心跳", 糖果题的回答再短也大得多,
+// 与保活"只花最少流量维持活跃"的目的相悖; 在这里统一关掉, 调度器就不必各处分情况判断。
 func (probe ScheduledProbe) IQProbeEnabled() bool {
+	if probe.Kind == ScheduledProbeKindKeepalive {
+		return false
+	}
 	return !probe.IQDisabled
+}
+
+// IsKeepalive 返回这条任务是否为保活任务。
+// 调度器与处理器靠它分叉落点: 保活只落结论、监控落路由状态, 其余(轮转、间隔、时间窗)完全共用。
+func (probe ScheduledProbe) IsKeepalive() bool {
+	return probe.Kind == ScheduledProbeKindKeepalive
 }
 
 // ScheduledProbeTarget 是任务下的一个被监控目标: 某个渠道下的某个模型。
@@ -92,10 +152,10 @@ func (probe ScheduledProbe) IQProbeEnabled() bool {
 //
 // 模型存名称而不是渠道模型主键: 渠道页整体替换模型集合时会重建主键, 按名称存的目标不会因此失效。
 type ScheduledProbeTarget struct {
-	ID        int    `json:"id" gorm:"primaryKey"`                     // 目标主键。
-	ProbeID   int    `json:"probe_id" gorm:"not null;index"`           // 所属任务 ID。
-	ChannelID int    `json:"channel_id" gorm:"not null"`               // 被监控的渠道 ID。
-	ModelName string `json:"model_name" gorm:"not null"`               // 被监控的上游模型名称, 必须属于该渠道。
+	ID        int    `json:"id" gorm:"primaryKey"`           // 目标主键。
+	ProbeID   int    `json:"probe_id" gorm:"not null;index"` // 所属任务 ID。
+	ChannelID int    `json:"channel_id" gorm:"not null"`     // 被监控的渠道 ID。
+	ModelName string `json:"model_name" gorm:"not null"`     // 被监控的上游模型名称, 必须属于该渠道。
 	// ExcludedKeys 记录用户在这个目标下逐行删掉的凭据名称。
 	//
 	// 记"排除谁"而不是"只留谁": 空值天然等于"全都要", 新建的任务与从没删过行的任务因此落在同一个默认上;
@@ -168,6 +228,12 @@ type ScheduledProbeRow struct {
 	LatencyMS   int64  `json:"latency_ms"`   // 从发起到收到有效响应的耗时毫秒数。
 	Message     string `json:"message"`      // 成功时为空, 失败时为上游错误正文或本地配置错误。
 	ProbedAt    int64  `json:"probed_at"`    // 结论产生时间, Unix 毫秒。
+	// StatusCode 是上游返回的 HTTP 状态码: 成功为 200, 失败时从错误链里提取(如 429 排队已满),
+	// 提取不到(网络错误/本地配置错误)时为 0, 界面按"无状态码"展示。
+	// 保活场景下这个数字与延迟同样重要: 它区分"上游真的响应了但拒绝"(429/503)
+	// 与"根本连不上", 前者说明保活请求已经打到上游、收到了它的回绝状态,
+	// 至于上游是否因此保住了排队位, 仅靠这个状态码无从判断 —— 状态本身不构成任何排队预留的证据。
+	StatusCode int `json:"status_code"`
 	// IQAsked 标记这一行有没有被问过智商题。它必须与 IQAnswer 分开:
 	// "没问过"和"问了但答不出可判分的答案"在界面上是两种状态(前者什么都不该显示, 后者要显示降智),
 	// 而两者的 IQAnswer 都是空串 —— 只看答案就把后一种状态吞掉了。
@@ -209,6 +275,10 @@ type ScheduledProbeTargetRequest struct {
 // 定时测活字段少且一次整体提交, 无需另建更新类型; 主键走路径, 不进请求体。
 type ScheduledProbeRequest struct {
 	Name string `json:"name" binding:"required"` // 任务的自定义名字, 界面上通常就是模型名。
+	// Kind 区分任务种类(monitor / keepalive), 缺省(空串)按 monitor 处理 —— 与存量请求体兼容。
+	// 更新时忽略该字段: 种类在创建时定稿, 编辑表单不该把一条保活任务改成监控(或反之) ——
+	// 那会让改名前测出的结论与改名后的语义对不上, 要换种类就新建一条。
+	Kind string `json:"kind"`
 	// Targets 整体替换: 目标集合是一次编辑里定稿的, 逐个增删要额外定义"没传的目标算不算删除"。
 	// dive 让校验下沉到每个元素: 少一个渠道 ID 也能定位到是哪一个目标写错了。
 	Targets         []ScheduledProbeTargetRequest `json:"targets" binding:"required,min=1,dive"`

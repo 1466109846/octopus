@@ -23,6 +23,10 @@ func init() {
 				Handle(getNowVersion),
 		).
 		AddRoute(
+			router.NewRoute("/build-info", http.MethodGet).
+				Handle(getBuildInfo),
+		).
+		AddRoute(
 			router.NewRoute("", http.MethodPost).
 				Handle(updateFunc),
 		)
@@ -39,6 +43,13 @@ func latest(c *gin.Context) {
 
 func getNowVersion(c *gin.Context) {
 	resp.Success(c, conf.Version)
+}
+
+func getBuildInfo(c *gin.Context) {
+	resp.Success(c, gin.H{
+		"version": conf.Version, "repository": conf.Repo,
+		"commit": conf.Commit, "build_time": conf.BuildTime,
+	})
 }
 
 func updateFunc(c *gin.Context) {

@@ -225,6 +225,7 @@ func ScheduledProbeCreate(req model.ScheduledProbeRequest, ctx context.Context) 
 	}
 	probe := model.ScheduledProbe{
 		Name:            strings.TrimSpace(req.Name),
+		Kind:            normalizeProbeKind(req.Kind),
 		IntervalMinutes: req.IntervalMinutes,
 		Enabled:         true,
 		IQDisabled:      req.IQDisabled,
@@ -240,6 +241,21 @@ func ScheduledProbeCreate(req model.ScheduledProbeRequest, ctx context.Context) 
 	return probe, nil
 }
 
+// normalizeProbeKind 把提交的任务种类折算成落库值。
+//
+// 空串按 monitor 处理: 种类是新增字段, 老客户端/老请求体不带它; 存量行(升级前创建)读出空串,
+// 回落到 monitor 与迁移默认值(见 ScheduledProbe.Kind)同一条口径, 是最安全的解释。
+//
+// 非空未知值**不会**到达这里: 提交校验(validateScheduledProbe → model.ValidateProbeKind)已先行拒绝,
+// 落库侧只负责"空串兜底"与"keepalive 直通", 不再把乱写的值静默回落成 monitor —— 那条旧行为
+// 会让一条本意是保活的任务悄悄变成监控, 结论落点与调度语义全错且无报错。
+func normalizeProbeKind(kind string) string {
+	if kind == model.ScheduledProbeKindKeepalive {
+		return model.ScheduledProbeKindKeepalive
+	}
+	return model.ScheduledProbeKindMonitor
+}
+
 // ScheduledProbeUpdate 整体替换一条任务的配置与目标集合, 启停也走这里。
 // 用整体替换而不是逐字段补丁: 一条任务总共就这么几个字段, 界面的编辑与开关都提交完整配置,
 // 补丁语义反而要额外定义"没传的字段算不算清空", 多一套规则就多一处可能与界面不一致的地方。
@@ -253,14 +269,21 @@ func ScheduledProbeUpdate(id int, req model.ScheduledProbeRequest, ctx context.C
 	}
 
 	updated := model.ScheduledProbe{
-		ID:              id,
-		Name:            strings.TrimSpace(req.Name),
+		ID:   id,
+		Name: strings.TrimSpace(req.Name),
+		// Kind 沿用既有值而不是取请求体: 种类在创建时定稿, 编辑表单不该把一条保活任务改成监控
+		// (或反之) —— 换种类意味着结论落点与语义都换了, 那是一条新任务, 不该由一次重命名顺带完成。
+		// 归一化兜底: 极端情况下存量行读到空串(见 normalizeProbeKind), 按 monitor 写回。
+		Kind:            normalizeProbeKind(existing.Kind),
 		IntervalMinutes: req.IntervalMinutes,
 		Enabled:         req.Enabled,
 		IQDisabled:      req.IQDisabled,
 		Weekdays:        req.Weekdays,
 		StartHour:       req.StartHour,
 		EndHour:         req.EndHour,
+		// CreditOrder 由独立的拖拽接口维护, 编辑表单不带它; 不带上它, Save 会把这一列整列清掉,
+		// 用户拖出来的凭据顺序在一次编辑之后就全丢了。沿用既有值是这里唯一安全的处理。
+		CreditOrder: existing.CreditOrder,
 		// Save 会写全字段, 不带上创建时间就会被清成 0; 那是任务的出生记录, 不该被一次编辑抹掉。
 		CreatedAt: existing.CreatedAt,
 	}
@@ -483,6 +506,11 @@ func ScheduledProbeDelete(id int, ctx context.Context) error {
 func validateScheduledProbe(req model.ScheduledProbeRequest) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return fmt.Errorf("name is required")
+	}
+	// 种类在落库前先卡一道: 非空未知值一律拒绝, 不能靠归一化兜底回落成 monitor。
+	// 缺省(空串)与两个已知种类放行, 详见 model.ValidateProbeKind。
+	if err := model.ValidateProbeKind(req.Kind); err != nil {
+		return err
 	}
 	if len(req.Targets) == 0 {
 		return fmt.Errorf("at least one target is required")

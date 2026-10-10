@@ -1,0 +1,46 @@
+{
+    "empty": "No keepalive tasks yet. Click + to create one. A keepalive sends a minimal request on an interval to attempt to maintain upstream activity; failures are shown only and never cool down a channel or affect routing.",
+    "createTitle": "New keepalive",
+    "editTitle": "Edit keepalive: {name}",
+    "cancel": "Cancel",
+    "confirmDelete": "Confirm delete",
+    "delete": "Delete",
+    "edit": "Edit",
+    "enable": "Enable keepalive",
+    "enabled": "Keepalive enabled",
+    "disabled": "Keepalive disabled",
+    "intervalValue": "every {minutes} min",
+    "keepaliveNow": "Keepalive now (heartbeat every credential)",
+    "keepaliveThis": "Keepalive this one",
+    "removeCredential": "Stop keeping this credential alive",
+    "noTarget": "No keepalive targets",
+    "notProbed": "No keepalive yet",
+    "noStatus": "No status",
+    "unknownError": "unknown error",
+    "seconds": "{value} s",
+    "detailOk": "HTTP {status} · {latency}",
+    "detailFailed": "HTTP {status} · {message}",
+    "justNow": "just now",
+    "probedAgo": "{time} ago",
+    "minutesShort": "{count} min",
+    "hoursShort": "{count} h",
+    "status": {
+        "running": "Alive",
+        "failed": "Failed",
+        "pending": "Pending",
+        "paused": "Paused"
+    },
+    "form": {
+        "intervalHint": "How long one full round takes: every credential gets one heartbeat per interval, divided across the credentials so only one upstream call is made at a time. Default 5 minutes; adjust to the upstream's activity rules. Queue position is not guaranteed. Each heartbeat carries a small jitter so separate tasks do not hit upstream together."
+    },
+    "toast": {
+        "created": "Keepalive created",
+        "updated": "Keepalive updated",
+        "deleted": "Keepalive deleted",
+        "allDone": "Keepalive done: all {count} reached upstream",
+        "partialFailed": "Keepalive done: {failed}/{total} did not get through",
+        "grantDone": "Keepalive got through · HTTP {status}",
+        "grantFailed": "Keepalive did not get through: {message}",
+        "credentialRemoved": "Credential removed from this task"
+    }
+}

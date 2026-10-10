@@ -150,6 +150,14 @@ func scheduledProbeDue(id int, now time.Time) bool {
 // 1 条凭据的 30 分钟一轮), 用户配的那个数字就谁也对应不上。摊平之后每条凭据的周期
 // 一律等于 间隔 ÷ 凭据数, 整齐且可预期, 界面上拖出来的顺序也才真的等于轮转顺序。
 func runScheduledProbe(target model.ScheduledProbe, now time.Time) {
+	// 调度器一拍只做几次内存判断, 任何形式的非法种类都应当在真正打上游之前就被拦下,
+	// 否则会带着语意不明的种类去探测、再把结论落到错误的状态表。
+	if err := guardProbeKind(target); err != nil {
+		// 没有网络调用可发: 只把下一次探测推后, 等用户把任务种类改回合法值。
+		advanceScheduledProbe(target, now, false)
+		log.Warnf("scheduled probe skipped: task=%d kind=%q %v", target.ID, target.Kind, err)
+		return
+	}
 	credits := op.ScheduledProbeCredits(target)
 	if len(credits) == 0 {
 		// 没有可测凭据(理论上创建时已拦下, 但渠道改动、凭据被停用、或被逐行删空后可能落到这里):
@@ -162,12 +170,27 @@ func runScheduledProbe(target model.ScheduledProbe, now time.Time) {
 	// 非流式: 定时测活只问"这条通道此刻能不能出结果", 非流式响应体最短, 也不会占着上游连接等首字节;
 	// 界面上那个徽标只看成败, 与流式与否无关。
 	//
-	// 这条任务开着糖果测试时, 每一拍发的都是智商题而不是 "hi": 糖果题的响应本身就带"通不通、多快",
+	// 保活任务走另一条落点(只记保活结论, 不落路由): 见 ProbeKeepaliveGrant 的说明。
+	// 其余(轮转、间隔、凭据顺序)完全共用 —— 两类任务在这些维度上的语义本来就一致。
+	if target.IsKeepalive() {
+		result := ProbeKeepaliveGrant(context.Background(), credit.GrantID)
+		if result.OK {
+			log.Debugf("keepalive ok: task=%d channel=%d model=%s key=%s grant=%d latency=%dms status=%d",
+				target.ID, credit.Target.ChannelID, credit.Target.ModelName, credit.KeyName, credit.GrantID, result.LatencyMS, result.StatusCode)
+		} else {
+			log.Warnf("keepalive failed: task=%d channel=%d model=%s key=%s grant=%d latency=%dms status=%d message=%s",
+				target.ID, credit.Target.ChannelID, credit.Target.ModelName, credit.KeyName, credit.GrantID, result.LatencyMS, result.StatusCode, result.Message)
+		}
+		advanceScheduledProbe(target, now, true)
+		return
+	}
+
+	// 这条任务开着糖果测试时, 每一拍直接问智商题: 糖果题的响应本身就带"通不通、多快",
 	// 一次请求同时给出心跳与糖果两个结论, 分成两种请求只会让同一段时间里多一倍上游流量。
-	// 关掉糖果才回到发 "hi" 的纯测活。
+	// 关掉糖果才回到通信测试话术的纯测活。
 	//
 	// 不再有"每几拍夹一道题"的节流: 糖果开着时它就是这条链路唯一的探针, 夹着测反而会让一部分
-	// 心跳没有糖果结论。糖果题的响应体是 "hi" 的上百倍, 所以这条链路的花销现在由任务的间隔决定 ——
+	// 心跳没有糖果结论。糖果题的响应体明显大于纯测活, 所以这条链路的花销由任务的间隔决定 ——
 	// 间隔就是节流阀, 嫌密就调大间隔, 或关掉这条任务的糖果。
 	result := probeScheduledCredit(credit, target.IQProbeEnabled())
 	if result.OK {
@@ -309,17 +332,21 @@ func scheduledProbeValidity(cycle time.Duration) time.Duration {
 }
 
 // scheduledProbeGrantValidity 返回一条结论该挂多久: 监控该授权的任务里最长的那个轮转周期加余量。
-// 没有任何**启用中的**任务监控它时返回 0, 由读侧回落到默认有效期。
+// 没有任何**启用中的**监控任务监控它时返回 0, 由读侧回落到默认有效期。
 //
 // 取最长的那个周期: 同一条授权可能被多条任务监控, 结论却只有一条 —— 按最短的那条算,
 // 长间隔任务的结论会在它自己的下一轮到来之前先消失, 这正是"结果丢了"的成因。
 //
 // 只看启用中的任务: 停用的任务不会再复测, 也就不会有"下一次覆盖"。为它续期等于让一条
 // 永远等不到替换的结论一直挂着, 那比提前消失更容易误导。
+//
+// 跳过保活任务: 这里的有效期只管**监控结论**(route.Probes 的徽标), 而保活任务的结论落进
+// 另一个表、从不写路由状态。让保活任务的周期参与续期, 等于给一条与保活无关的监控徽标续命 ——
+// 它的下一次复测来自监控任务, 与保活跑得多勤没有关系。
 func scheduledProbeGrantValidity(grantID int) time.Duration {
 	longest := time.Duration(0)
 	for _, probe := range op.ScheduledProbeList() {
-		if !probe.Enabled {
+		if !probe.Enabled || probe.IsKeepalive() {
 			continue
 		}
 		// 走与调度、界面同一个凭据列表(见 op.ScheduledProbeCredits): 被用户逐行删掉的凭据不在里面,
@@ -400,6 +427,37 @@ func notifyProbeLanded(groupIDs []int) {
 	}
 }
 
+// guardProbeKind 在执行任何网络调用之前, 先把任务种类拦一道。
+//
+// 种类在 API 与 op 层已经校验过(空串兜底为 monitor, 非空未知值直接拒绝), 这里再设一道闸:
+// 万一有存量行或新增路径带着非法的 kind 走到调度/手动探测, 也应当立刻以错误返回,
+// 而不是带着一个语意不明的种类去打真实上游、再把结论落到错误的状态表上。
+// 空串视为 monitor(存量行兼容), 与 model.ValidateProbeKind 的口径一致。
+func guardProbeKind(probe model.ScheduledProbe) error {
+	return model.ValidateProbeKind(probe.Kind)
+}
+
+// guardProbeKindFor 在执行任何网络调用之前, 校验任务种类必须落在期望的一侧。
+//
+// 只做"合法值"校验是不够的: keepalive 与 monitor 都是合法值, 监控的手动入口拿到一条保活任务
+// 同样会放行, 再走监听语义(结论落路由、失败即冷却) —— 那正是保活功能承诺绝不发生的事。
+// 因此入口必须声明自己服务哪一类任务, 拿错种类的 ID 一律拒绝而不是"尽力而为"。
+// 方向判断只认期望值: 期望 monitor 时保活任务被拒, 期望 keepalive 时监控任务被拒;
+// 空串按 monitor 处理, 与其余各处的兼容口径一致。
+func guardProbeKindFor(probe model.ScheduledProbe, expected string) error {
+	if err := guardProbeKind(probe); err != nil {
+		return err
+	}
+	kind := probe.Kind
+	if kind == "" {
+		kind = model.ScheduledProbeKindMonitor
+	}
+	if kind != expected {
+		return fmt.Errorf("scheduled probe %d is a %s task, not a %s task", probe.ID, kind, expected)
+	}
+	return nil
+}
+
 // ProbeScheduledGrant 按定时测活任务的要求探测一条渠道授权, 并把结论落到引用该授权的全部成员上。
 //
 // 与 ProbeChannelGrant 的差别只在落点: 那条路是模型页的一次性测活, 测完即弃;
@@ -416,7 +474,13 @@ func ProbeScheduledGrant(ctx context.Context, grantID int, streaming bool) Probe
 
 // ProbeScheduledNow 手动测完整任务；定时调度仍然每拍只测一条。
 // 与界面、定时轮转共用凭据顺序；同渠道串行，跨渠道有限并发。
+//
+// 只接监控任务: 保活任务走 ProbeKeepaliveNow。拿错种类的 ID 会被 guardProbeKindFor 拒绝,
+// 而不是按监控语义把保活的失败写成渠道冷却 —— 那是保活功能明确承诺不会发生的事。
 func ProbeScheduledNow(ctx context.Context, probe model.ScheduledProbe) ([]ProbeResult, error) {
+	if err := guardProbeKindFor(probe, model.ScheduledProbeKindMonitor); err != nil {
+		return nil, err
+	}
 	credits := op.ScheduledProbeCredits(probe)
 	if len(credits) == 0 {
 		return nil, fmt.Errorf("no available credential for this probe")
@@ -452,7 +516,12 @@ func ProbeIQGrantNow(ctx context.Context, grantID int) ProbeResult {
 //
 // 走 probeByChannel 与定时链路同一条并发约束: 糖果题的响应体是测活的上百倍,
 // 一个任务几十条凭据全并发打出去, 上游那边看到的就是一次突发。
+//
+// 只接监控任务: 保活固定不发糖果, 拿保活任务的 ID 进来会被 guardProbeKindFor 拒绝。
 func ProbeScheduledIQNow(ctx context.Context, probe model.ScheduledProbe) ([]ProbeResult, error) {
+	if err := guardProbeKindFor(probe, model.ScheduledProbeKindMonitor); err != nil {
+		return nil, err
+	}
 	question, ok := iqQuestionByID(iqDefaultQuestionID)
 	if !ok {
 		return nil, fmt.Errorf("iq question %q not found", iqDefaultQuestionID)

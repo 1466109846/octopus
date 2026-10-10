@@ -52,6 +52,10 @@ type ProbeResult struct {
 	LatencyMS int64  `json:"latency_ms"` // 从发起到收到有效响应的耗时毫秒数; 失败时为耗时直到报错。
 	Message   string `json:"message"`    // 成功时为空, 失败时为上游错误正文或本地配置错误。
 	ProbedAt  int64  `json:"probed_at"`  // 结论产生时间, Unix 毫秒。
+	// StatusCode 是上游返回的 HTTP 状态码: 成功为 200, 失败时从错误链里提取(如 429 排队已满),
+	// 提取不到(网络错误/本地配置错误)时为 0, 界面按"无状态码"展示。
+	// omitempty 让旧数据与不关心状态码的消费方(路由状态快照)保持原样, 不白占推送体积。
+	StatusCode int `json:"status_code,omitempty"`
 	// ExpiresAt 是这条结论失效的时刻(Unix 毫秒), 由产出它的那次测活决定: 定时测活按所属任务的
 	// 轮转周期算(下一轮复测之前一直有效), 人工测活用 probeResultTTL 兜底。
 	//

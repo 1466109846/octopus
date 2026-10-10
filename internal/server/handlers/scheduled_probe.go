@@ -51,6 +51,16 @@ func init() {
 				Handle(probeIQGrantNow),
 		).
 		AddRoute(
+			// 手动把一条保活任务的每条凭据都保活一遍; 与 /probe/:id 并列, 落点不同(只记保活结论)。
+			router.NewRoute("/keepalive/:id", http.MethodPost).
+				Handle(keepaliveScheduledNow),
+		).
+		AddRoute(
+			// 单条凭据的保活: 供保活页一行末尾的心跳按钮使用。
+			router.NewRoute("/keepalive-grant/:grantID", http.MethodPost).
+				Handle(keepaliveGrantNow),
+		).
+		AddRoute(
 			router.NewRoute("/credential/:id", http.MethodPost).
 				Handle(setScheduledProbeCredential),
 		).
@@ -216,8 +226,13 @@ func deleteScheduledProbe(c *gin.Context) {
 	// 删之前先取出它监控过哪些凭据: 结论表按授权主键索引, 任务一删就再也推不出这些主键了。
 	// 结论不设有效期, 不主动丢掉的话, 这些凭据会永远挂着最后一次的绿或红 ——
 	// 而"这条通道还通不通"已经没有人再负责回答了。
+	// 按任务种类丢对应的结论表: 保活与监控各存一份, 丢错表等于没丢(另一份还挂着)。
 	if probe, ok := op.ScheduledProbeGet(id); ok {
-		relay.ForgetScheduledProbeResults(creditGrantIDs(op.ScheduledProbeCredits(probe)))
+		if probe.IsKeepalive() {
+			relay.ForgetKeepaliveResults(creditGrantIDs(op.ScheduledProbeCredits(probe)))
+		} else {
+			relay.ForgetScheduledProbeResults(creditGrantIDs(op.ScheduledProbeCredits(probe)))
+		}
 	}
 	if err := op.ScheduledProbeDelete(id, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -225,6 +240,42 @@ func deleteScheduledProbe(c *gin.Context) {
 	}
 	relay.ResetScheduledProbe(id)
 	resp.Success(c, nil)
+}
+
+// keepaliveScheduledNow 手动把一条保活任务的每条凭据都保活一遍, 返回逐条结论。
+//
+// 与 probeScheduledNow 同形(入参、错误码、返回的行形状都一致), 差别只在落点:
+// 那边走监控语义(结论落路由、失败可冷却), 这边只记保活结论, 绝不触碰分组路由状态。
+func keepaliveScheduledNow(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	probe, ok := op.ScheduledProbeGet(id)
+	if !ok {
+		resp.Error(c, http.StatusNotFound, "scheduled probe not found")
+		return
+	}
+
+	results, err := relay.ProbeKeepaliveNow(c.Request.Context(), probe)
+	if err != nil {
+		// 与立即测活同一口径: 没有可测凭据是配置状态而不是通道故障, 回请求错误让前端提示去检查渠道。
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp.Success(c, probeRowsOf(probe, results))
+}
+
+// keepaliveGrantNow 立即对一条凭据做一次保活, 供保活页一行末尾的心跳按钮使用。
+func keepaliveGrantNow(c *gin.Context) {
+	grantID, err := strconv.Atoi(c.Param("grantID"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	result := relay.ProbeKeepaliveGrant(c.Request.Context(), grantID)
+	resp.Success(c, result)
 }
 
 // scheduledProbeCredentialRequest 是行内隐藏/恢复一条凭据的提交形状。

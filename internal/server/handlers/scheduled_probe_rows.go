@@ -16,9 +16,17 @@ import (
 // probeRows 把一条任务摊成界面上的行, 并带上各条凭据当下的测活结论。
 // 仅摊已有凭据, 不再补占位行: 凭据被删后那条目标就应该从行里消失,
 // 不留"灰掉还能恢复"的痕迹——用户点 × 就是真的删除, 不来回倒腾。
+//
+// 结论源按任务种类分流: 监控任务读监控结论表, 保活任务读保活结论表。
+// 两份表各存各的(一条凭据可以同时被两类任务覆盖), 读错表会把另一边的数字显示到这一页上。
 func probeRows(probe model.ScheduledProbeView) []model.ScheduledProbeRow {
 	credits := op.ScheduledProbeCredits(probe.ScheduledProbe)
-	results := relay.ScheduledProbeResults(creditGrantIDs(credits))
+	var results map[int]relay.ProbeResult
+	if probe.IsKeepalive() {
+		results = relay.KeepaliveResults(creditGrantIDs(credits))
+	} else {
+		results = relay.ScheduledProbeResults(creditGrantIDs(credits))
+	}
 
 	rows := make([]model.ScheduledProbeRow, 0, len(credits))
 	for _, credit := range credits {
@@ -45,6 +53,7 @@ func probeRowsOf(probe model.ScheduledProbe, results []relay.ProbeResult) []mode
 		row.LatencyMS = result.LatencyMS
 		row.Message = result.Message
 		row.ProbedAt = result.ProbedAt
+		row.StatusCode = result.StatusCode
 		row.IQAsked, row.IQAnswer, row.IQCorrect = iqFieldsOf(result)
 		rows = append(rows, row)
 	}
@@ -73,6 +82,7 @@ func withProbeResult(row model.ScheduledProbeRow, results map[int]relay.ProbeRes
 	row.LatencyMS = result.LatencyMS
 	row.Message = result.Message
 	row.ProbedAt = result.ProbedAt
+	row.StatusCode = result.StatusCode
 	row.IQAsked, row.IQAnswer, row.IQCorrect = iqFieldsOf(result)
 	return row
 }

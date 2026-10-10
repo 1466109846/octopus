@@ -30,23 +30,25 @@
 
 ### 🐳 Docker 运行
 
-直接运行
+本次 Release 只发布二进制，不发布 GHCR 镜像。要使用 Docker，请在本地构建本 fork 的镜像：
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 ghcr.io/xiaocqaq/octopus:latest
+git clone https://github.com/1466109846/octopus.git
+cd octopus
+docker build -f scripts/dockerfile/Dockerfile -t octopus:local .
+docker run -d --name octopus -v /path/to/data:/app/data -p 18874:18874 octopus:local
 ```
 
-或者使用 docker compose 运行
+或者在本仓库目录下用 docker compose 本地构建运行：
 
 ```bash
-wget https://raw.githubusercontent.com/xiaocqaq/octopus/refs/heads/master/docker-compose.yml
-docker compose up -d
+docker compose up -d --build
 ```
 
 
 ### 📦 从 Release 下载
 
-从 [Releases](https://github.com/bestruirui/octopus/releases) 下载对应平台的二进制文件，然后运行：
+从 [Releases](https://github.com/1466109846/octopus/releases) 下载对应平台的二进制文件，然后运行：
 
 ```bash
 ./octopus start
@@ -55,13 +57,13 @@ docker compose up -d
 ### 🛠️ 源码运行
 
 **环境要求：**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
+- Go 1.26.4
+- Node.js 24+
+- pnpm 10+
 
 ```bash
 # 克隆本分支项目
-git clone https://github.com/xiaocqaq/octopus.git
+git clone https://github.com/1466109846/octopus.git
 cd octopus
 # 构建前端
 cd web && pnpm install && pnpm run build
@@ -83,7 +85,7 @@ http://localhost:5173
 
 ### 🔐 默认账户
 
-首次启动后，访问 http://localhost:8080 使用以下默认账户登录管理面板：
+首次启动后，访问 http://localhost:18874 使用以下默认账户登录管理面板：
 
 - **用户名**：`admin`
 - **密码**：`admin`
@@ -100,7 +102,7 @@ http://localhost:5173
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 18874
   },
   "database": {
     "type": "sqlite",
@@ -117,7 +119,7 @@ http://localhost:5173
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `server.host` | 监听地址 | `0.0.0.0` |
-| `server.port` | 服务端口 | `8080` |
+| `server.port` | 服务端口 | `18874` |
 | `database.type` | 数据库类型 | `sqlite` |
 | `database.path` | 数据库连接地址 | `data/data.db` |
 | `log.level` | 日志级别 | `info` |
@@ -258,6 +260,18 @@ http://localhost:5173
 
 模型看到后会尽快回一句短应答，维持原有的最小成本路径（`max_tokens` 仍为 16，超时与结论语义完全不变）。若哪天该话术也被识别，只需改 `internal/relay/probe.go` 里的 `probePrompt` 一行、重新构建替换二进制即可。
 
+### 💓 保活
+
+> **动机**：有些上游需要你一直"在场"——排队制或活跃度限流的服务，一段时间没有流量就把你踢出队列。模型监控回答的是"这条通道健不健康"，与保活不是同一件事：监控失败会冷却渠道，而排队场景里被拒（HTTP 429）是常态，照监控语义处理会把一条正常的渠道越保越死。
+
+**保活**页按间隔向选定的渠道·凭据发送最小请求（默认 **5 分钟**），尝试维持上游活跃与排队位：
+
+- 队列、间隔均摊、凭据轮转与逐行展示全部与模型监控共用（同一张任务表，按任务种类分流），两个页面互不串台
+- 每行展示最近一次心跳的状态、**HTTP 状态码**与耗时：`429/503` 表示请求已到达上游但被拒绝；无状态码通常表示超时、网络故障或本地配置错误。**收到状态码不能证明排队位已保留**，是否有效取决于上游规则
+- **只展示、永不影响选路**：保活失败不冷却渠道、不降健康分、不参与故障转移——与排队场景的诉求正好相反，防止误伤正常渠道
+- 保活固定发最小请求（不会发糖果题），且全天可测（不设时间窗），以减少夜间长时间无流量；无法保证上游不会清掉排队位
+- 支持逐条或整任务的"立即保活一次"，逐条给出结论
+
 ### 📡 渠道管理
 
 渠道是连接 LLM 供应商的基础配置单元。
@@ -338,7 +352,7 @@ from openai import OpenAI
 import os
 
 client = OpenAI(   
-    base_url="http://127.0.0.1:8080/v1",   
+    base_url="http://127.0.0.1:18874/v1",
     api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
 )
 completion = client.chat.completions.create(
@@ -357,7 +371,7 @@ print(completion.choices[0].message.content)
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="sk-octopus-...")
+client = OpenAI(base_url="http://127.0.0.1:18874/v1", api_key="sk-octopus-...")
 resp = client.images.generate(prompt="一只戴墨镜的猫", n=1, size="1024x1024")
 print(resp.data[0].url)
 ```
@@ -369,7 +383,7 @@ print(resp.data[0].url)
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:18874",
     "ANTHROPIC_AUTH_TOKEN": "sk-octopus-",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -393,7 +407,7 @@ model_provider = "octopus"
 preferred_auth_method = "apikey"
 
 [model_providers.octopus]
-base_url = "http://127.0.0.1:8080/v1"
+base_url = "http://127.0.0.1:18874/v1"
 name = "octopus"
 supports_websockets = false
 requires_openai_auth = true

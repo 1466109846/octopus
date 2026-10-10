@@ -45,7 +45,8 @@
         "model": "價格",
         "log": "日誌",
         "setting": "設定",
-        "probe": "模型監控"
+        "probe": "模型監控",
+        "keepalive": "保活"
     },
     "toolbar": {
         "hideChannelName": "模糊渠道名稱",
@@ -285,11 +286,15 @@
         "info": {
             "title": "版本資訊",
             "currentVersion": "當前版本",
+            "frontendVersion": "前端版本",
+            "buildCommit": "建置提交",
+            "loading": "載入中",
+            "repositoryMismatch": "前端倉庫 {frontend} 與後端倉庫 {backend} 不一致。",
             "latestVersion": "最新版本",
             "github": "GitHub 倉庫",
             "unknown": "未知",
             "versionMismatch": "版本不匹配",
-            "versionMismatchHint": "前端版本 ({frontend}) 與後端版本 ({backend}) 不一致，可能是瀏覽器快取問題，請強制重新整理頁面。",
+            "versionMismatchHint": "前端版本 ({frontend}) 與後端版本 ({backend}) 不一致。請先強制重新整理；若仍不一致，需安裝前後端來自同一次建置的完整版本。",
             "forceRefresh": "強制重新整理",
             "newVersionAvailable": "發現新版本可用",
             "newVersionAvailableHint": "請先備份數據，然後更新系統",

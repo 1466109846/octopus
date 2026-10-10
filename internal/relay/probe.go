@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -331,9 +332,48 @@ func ProbeChannelGrant(ctx context.Context, grantID int, streaming bool) ProbeRe
 		if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
 			message = fmt.Sprintf("probe timeout after %s", timeout)
 		}
-		return ProbeResult{ItemID: grantID, LatencyMS: latency, Message: message, ProbedAt: time.Now().UnixMilli()}
+		// 失败也带上能提取到的状态码: 保活场景下 429/503(上游响应了但队列满)与 0(根本连不上)
+		// 是两种完全不同的结论 —— 前者说明保活请求确实打到了上游, 只是被排队挡回。
+		return ProbeResult{ItemID: grantID, LatencyMS: latency, Message: message, ProbedAt: time.Now().UnixMilli(), StatusCode: upstreamStatusOf(probeErr)}
 	}
-	return ProbeResult{ItemID: grantID, OK: true, LatencyMS: latency, ProbedAt: time.Now().UnixMilli()}
+	return ProbeResult{ItemID: grantID, OK: true, LatencyMS: latency, ProbedAt: time.Now().UnixMilli(), StatusCode: http.StatusOK}
+}
+
+// upstreamStatusOf 从错误链里提取上游返回的 HTTP 状态码; 提取不到时返回 0。
+//
+// 提取只走结构化错误类型, 不扫错误文本找数字:
+//   - 同协议透传: httpclient.Error(携带 StatusCode 字段);
+//   - 跨协议转换: pipeline 会把 httpclient.Error 经 TransformError 转成 *llm.ResponseError,
+//     外层还包着 *pipeline.UpstreamError, errors.As 会逐层解开。
+//
+// 历史上有过一条"扫错误串找 'upstream responded 429 ...' 前缀"的兜底: 那是 sendPassthroughStream
+// 把状态码拼进错误字符串的产物, 一旦把"在文本里找三位数"泛化成通用解析, 就会把错误正文里
+// 随手出现的任何三位数字(如 "rate limit reached after 429 retries" 里的段落编号、地址里的端口)
+// 误当成状态码 —— 状态码因此从"上游回了什么"退化成"错误串里恰好有哪几个数字"。
+// 流式首事件的状态码本就由同一条 httpclient.Error 承载(errors.As 能解开), 不需要文本兜底。
+//
+// 只对落到合法区间(100..599)的结构化状态码负责: 任何超出这个范围的来源都视为"提取不到",
+// 返回 0, 界面按"无状态码"展示 —— 0 与任何真实状态码都不冲突(HTTP 状态码从 100 起)。
+func upstreamStatusOf(err error) int {
+	if err == nil {
+		return 0
+	}
+	var failure *httpclient.Error
+	if errors.As(err, &failure) && validStatusCode(failure.StatusCode) {
+		return failure.StatusCode
+	}
+	var responseErr *llm.ResponseError
+	if errors.As(err, &responseErr) && validStatusCode(responseErr.StatusCode) {
+		return responseErr.StatusCode
+	}
+	return 0
+}
+
+// validStatusCode 判断一个数值是否可取作上游返回的真实 HTTP 状态码。
+// 只看区间 100..599: 100 是最低的有效状态码, 599 是 5xx 类目的上界;
+// 更大的数(6xx 等)或 0/负数都不是真实状态码, 一律视为"提取不到"。
+func validStatusCode(code int) bool {
+	return code >= 100 && code <= 599
 }
 
 func stringPtr(value string) *string { return &value }

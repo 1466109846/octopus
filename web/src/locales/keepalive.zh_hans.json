@@ -1,0 +1,46 @@
+{
+    "empty": "还没有保活任务，点右上角 + 新建一条。保活会按间隔给上游发最小请求，尝试维持活跃度；失败只展示，不会冷却渠道、不影响选路。",
+    "createTitle": "新建保活任务",
+    "editTitle": "编辑保活任务：{name}",
+    "cancel": "取消",
+    "confirmDelete": "确认删除",
+    "delete": "删除",
+    "edit": "编辑",
+    "enable": "启用保活",
+    "enabled": "已启用保活",
+    "disabled": "已停用保活",
+    "intervalValue": "每 {minutes} 分钟",
+    "keepaliveNow": "立刻保活一次（逐条心跳）",
+    "keepaliveThis": "保活这一条",
+    "removeCredential": "不再保活这条凭据",
+    "noTarget": "暂无保活目标",
+    "notProbed": "尚未保活过",
+    "noStatus": "无状态码",
+    "unknownError": "未知错误",
+    "seconds": "{value} 秒",
+    "detailOk": "HTTP {status} · {latency}",
+    "detailFailed": "HTTP {status} · {message}",
+    "justNow": "刚刚",
+    "probedAgo": "{time} 前",
+    "minutesShort": "{count} 分钟",
+    "hoursShort": "{count} 小时",
+    "status": {
+        "running": "保活中",
+        "failed": "保活失败",
+        "pending": "等待首次",
+        "paused": "已停用"
+    },
+    "form": {
+        "intervalHint": "每条凭据各发一次心跳所需的周期，会按凭据条数均摊，保证一次只打一条上游。默认 5 分钟；请按上游活跃度规则调整，无法保证排队位不被清除。实际时刻带少量随机抖动，避免多条任务挤在一起。"
+    },
+    "toast": {
+        "created": "已创建保活任务",
+        "updated": "已更新保活任务",
+        "deleted": "已删除保活任务",
+        "allDone": "保活完成：{count} 条全部打通",
+        "partialFailed": "保活完成：{failed}/{total} 条未打通",
+        "grantDone": "保活打通 · HTTP {status}",
+        "grantFailed": "保活未打通：{message}",
+        "credentialRemoved": "已从当前任务删除这条凭据"
+    }
+}

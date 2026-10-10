@@ -117,3 +117,33 @@ func TestIQProbeEnabledDefaultsToOn(t *testing.T) {
 		t.Fatal("IQDisabled 为真时应跳过糖果测试")
 	}
 }
+
+// TestValidateProbeKind 守任务种类校验这一处: 空串(缺省/存量兼容)与两个已知种类都放行,
+// 任何非空未知值一律拒绝。拒绝非空未知值是这次修复的核心 —— 否则一条本意是保活的任务会被静默
+// 回落成监控(或反之), 结论落点与调度语义全错, 而界面上只会显示"结论落到了错误的那张表上", 不报错。
+func TestValidateProbeKind(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    string
+		wantErr bool
+	}{
+		{"缺省空串放行", "", false},
+		{"监控放行", ScheduledProbeKindMonitor, false},
+		{"保活放行", ScheduledProbeKindKeepalive, false},
+		{"kc 全等误写拒绝", ScheduledProbeKindKeepalive + " ", true},
+		{"大写误写拒绝", "Keepalive", true},
+		{"完全无关值拒绝", "foo", true},
+		{"别称拒绝", "liveness", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateProbeKind(tc.kind)
+			if tc.wantErr && err == nil {
+				t.Fatalf("kind=%q 应被拒绝, 却通过了", tc.kind)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("kind=%q 应放行, 却报了错: %v", tc.kind, err)
+			}
+		})
+	}
+}

@@ -1,0 +1,46 @@
+{
+    "empty": "還沒有保活任務，點右上角 + 新建一條。保活會按間隔向上游發送最小請求，嘗試維持活躍度；失敗只顯示，不會冷卻供應源、不影響選路。",
+    "createTitle": "新建保活任務",
+    "editTitle": "編輯保活任務：{name}",
+    "cancel": "取消",
+    "confirmDelete": "確認刪除",
+    "delete": "刪除",
+    "edit": "編輯",
+    "enable": "啟用保活",
+    "enabled": "已啟用保活",
+    "disabled": "已停用保活",
+    "intervalValue": "每 {minutes} 分鐘",
+    "keepaliveNow": "立刻保活一次（逐條心跳）",
+    "keepaliveThis": "保活這一條",
+    "removeCredential": "不再保活這條憑據",
+    "noTarget": "暫無保活目標",
+    "notProbed": "尚未保活過",
+    "noStatus": "無狀態碼",
+    "unknownError": "未知錯誤",
+    "seconds": "{value} 秒",
+    "detailOk": "HTTP {status} · {latency}",
+    "detailFailed": "HTTP {status} · {message}",
+    "justNow": "剛剛",
+    "probedAgo": "{time} 前",
+    "minutesShort": "{count} 分鐘",
+    "hoursShort": "{count} 小時",
+    "status": {
+        "running": "保活中",
+        "failed": "保活失敗",
+        "pending": "等待首次",
+        "paused": "已停用"
+    },
+    "form": {
+        "intervalHint": "每條憑據各發一次心跳所需的週期，會按憑據條數均攤，保證一次只打一條上游。預設 5 分鐘；請依上游活躍度規則調整，無法保證排隊位不被清除。實際時刻帶少量隨機抖動，避免多條任務擠在一起。"
+    },
+    "toast": {
+        "created": "已建立保活任務",
+        "updated": "已更新保活任務",
+        "deleted": "已刪除保活任務",
+        "allDone": "保活完成：{count} 條全部打通",
+        "partialFailed": "保活完成：{failed}/{total} 條未打通",
+        "grantDone": "保活打通 · HTTP {status}",
+        "grantFailed": "保活未打通：{message}",
+        "credentialRemoved": "已從目前任務刪除這條憑據"
+    }
+}

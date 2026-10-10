@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { LucideIcon } from 'lucide-react';
-import { Home, Radio, FolderTree, Settings, Logs, Activity } from 'lucide-react';
+import { Home, Radio, FolderTree, Settings, Logs, Activity, HeartPulse } from 'lucide-react';
 
 // Page 表示应用支持的固定页面集合。
-export type Page = 'home' | 'channel' | 'group' | 'model' | 'probe' | 'log' | 'setting';
+export type Page = 'home' | 'channel' | 'group' | 'model' | 'probe' | 'keepalive' | 'log' | 'setting';
 
 // NavItem 描述导航按钮使用的页面标识、文案和图标。
 type NavItem = { id: Page; label: string; icon: LucideIcon };
@@ -15,6 +15,9 @@ export const NAV_ITEMS: NavItem[] = [
     { id: 'channel', label: 'Channel', icon: Radio },
     { id: 'group', label: 'Group', icon: FolderTree },
     { id: 'probe', label: 'ModelMonitor', icon: Activity },
+    // 保活紧跟在模型监控之后: 两者是"往上游打请求看结果"的一对(一个查健康、一个维持活跃),
+    // 放一起才看得出这层关系; 图标用心跳, 与行内保活按钮同一枚, 页面内外互相指认。
+    { id: 'keepalive', label: 'Keepalive', icon: HeartPulse },
     { id: 'log', label: 'Log', icon: Logs },
     { id: 'setting', label: 'Setting', icon: Settings },
 ];

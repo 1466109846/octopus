@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 
 COPY web/ ./
 ARG APP_VERSION=dev
-ARG GITHUB_REPO=https://github.com/xiaocqaq/octopus
+ARG GITHUB_REPO=https://github.com/1466109846/octopus
 ENV VITE_APP_VERSION=$APP_VERSION \
     VITE_GITHUB_REPO=$GITHUB_REPO
 RUN pnpm run build
@@ -24,7 +24,7 @@ WORKDIR /src
 
 ARG TARGETPLATFORM
 ARG APP_VERSION=dev
-ARG GITHUB_REPO=https://github.com/xiaocqaq/octopus
+ARG GITHUB_REPO=https://github.com/1466109846/octopus
 ARG BUILD_TIME=1970-01-01T00:00:00Z
 ARG LDFLAGS="-s -w -X github.com/bestruirui/octopus/internal/conf.Version=${APP_VERSION} -X github.com/bestruirui/octopus/internal/conf.BuildTime=${BUILD_TIME} -X github.com/bestruirui/octopus/internal/conf.Repo=${GITHUB_REPO}"
 
@@ -56,6 +56,6 @@ COPY LICENSE /app/LICENSE
 
 RUN chmod +x /app/octopus /entrypoint.sh
 
-EXPOSE 8080
+EXPOSE 18874
 VOLUME ["/app/data"]
 ENTRYPOINT ["/entrypoint.sh"]

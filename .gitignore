@@ -7,3 +7,5 @@ static/out/*
 .idea/
 .codegraph/
 /.probe-test/
+__pycache__/
+*.pyc

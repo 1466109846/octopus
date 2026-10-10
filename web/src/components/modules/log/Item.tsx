@@ -65,7 +65,7 @@ const PROTOCOL_LABELS: Record<number, string> = {
 
 // responseModelMismatch 判断响应模型与请求模型是否不一致。
 // 大小写与首尾空白不参与比较: 上游把模型名改个大小写不算掺水, 那边界噪声不该报警。
-export function responseModelMismatch(requested: string, responded: string): boolean {
+function responseModelMismatch(requested: string, responded: string): boolean {
     const left = requested.trim().toLowerCase();
     const right = responded.trim().toLowerCase();
     return left !== '' && right !== '' && left !== right;

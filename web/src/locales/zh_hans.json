@@ -45,7 +45,8 @@
         "model": "价格",
         "log": "日志",
         "setting": "设置",
-        "probe": "模型监控"
+        "probe": "模型监控",
+        "keepalive": "保活"
     },
     "toolbar": {
         "hideChannelName": "模糊渠道名称",
@@ -285,11 +286,15 @@
         "info": {
             "title": "版本信息",
             "currentVersion": "当前版本",
+            "frontendVersion": "前端版本",
+            "buildCommit": "构建提交",
+            "loading": "加载中",
+            "repositoryMismatch": "前端仓库 {frontend} 与后端仓库 {backend} 不一致。",
             "latestVersion": "最新版本",
             "github": "GitHub 仓库",
             "unknown": "未知",
             "versionMismatch": "版本不匹配",
-            "versionMismatchHint": "前端版本 ({frontend}) 与后端版本 ({backend}) 不一致，可能是浏览器缓存问题，请强制刷新页面。",
+            "versionMismatchHint": "前端版本 ({frontend}) 与后端版本 ({backend}) 不一致。请先强制刷新；若仍不一致，需要安装前后端来自同一次构建的完整版本。",
             "forceRefresh": "强制刷新",
             "newVersionAvailable": "发现新版本可用",
             "newVersionAvailableHint": "请先备份数据，然后更新系统",

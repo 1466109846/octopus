@@ -24,6 +24,7 @@ const Channel = lazy(() => pageImports.channel().then((module) => ({ default: mo
 const Group = lazy(() => pageImports.group().then((module) => ({ default: module.Group })));
 const Model = lazy(() => pageImports.model().then((module) => ({ default: module.Model })));
 const ScheduledProbe = lazy(() => pageImports.probe().then((module) => ({ default: module.ScheduledProbe })));
+const Keepalive = lazy(() => pageImports.keepalive().then((module) => ({ default: module.Keepalive })));
 const Log = lazy(() => pageImports.log().then((module) => ({ default: module.Log })));
 const Setting = lazy(() => pageImports.setting().then((module) => ({ default: module.Setting })));
 const HomeActions = lazy(() => pageImports.home().then((module) => ({ default: module.HomeActions })));
@@ -31,6 +32,7 @@ const ChannelActions = lazy(() => pageImports.channel().then((module) => ({ defa
 const GroupActions = lazy(() => pageImports.group().then((module) => ({ default: module.GroupActions })));
 const ModelActions = lazy(() => pageImports.model().then((module) => ({ default: module.ModelActions })));
 const ScheduledProbeActions = lazy(() => pageImports.probe().then((module) => ({ default: module.ScheduledProbeActions })));
+const KeepaliveActions = lazy(() => pageImports.keepalive().then((module) => ({ default: module.KeepaliveActions })));
 
 // InitialLoadingGate 在当前界面提交后淡出并移除 HTML 首屏加载动画。
 function InitialLoadingGate({ children }: { children: ReactNode }) {
@@ -122,6 +124,7 @@ export function AppContainer() {
                     {visibleItem === 'group' && <GroupActions />}
                     {visibleItem === 'model' && <ModelActions />}
                     {visibleItem === 'probe' && <ScheduledProbeActions />}
+                    {visibleItem === 'keepalive' && <KeepaliveActions />}
                 </Suspense>
             }
         >
@@ -152,6 +155,7 @@ export function AppContainer() {
                             {visibleItem === 'group' && <Group />}
                             {visibleItem === 'model' && <Model />}
                             {visibleItem === 'probe' && <ScheduledProbe />}
+                            {visibleItem === 'keepalive' && <Keepalive />}
                             {visibleItem === 'log' && <Log />}
                             {visibleItem === 'setting' && <Setting />}
                         </motion.div>

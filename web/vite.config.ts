@@ -6,24 +6,25 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { compression, defineAlgorithm } from 'vite-plugin-compression2';
 
-// git 执行失败时返回空串 (例如从压缩包而非仓库构建), 由调用方各自兜底。
+const root = path.resolve(import.meta.dirname, '..');
+
 function git(command: string): string {
   try {
-    return execSync(command, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return execSync(command, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
   } catch {
     return '';
   }
 }
 
-// 版本与仓库地址优先取构建环境给的变量, 本地构建则回退到本地 git。
-// 后端由 build.sh 用同一条 git describe 注入 conf.Version, 两侧同源于同一个 HEAD,
-// 前端版本由此与后端必然一致, 不会再出现"前端 unknown 与后端 dev 不一致"的误报。
-const appVersion = process.env.VITE_APP_VERSION || git('git describe --tags --abbrev=0') || 'dev';
-// 仓库地址取本地 origin: fork 自建时更新检查与界面展示都指向自己的仓库。
-const githubRepo =
-  process.env.VITE_GITHUB_REPO ||
-  git('git remote get-url origin').replace(/\.git$/, '') ||
-  'https://github.com/bestruirui/octopus';
+// The source marker is available before tagging and when building a source archive.
+const sourceVersion = fs.existsSync(path.join(root, 'main.go'))
+  ? fs.readFileSync(path.join(root, 'main.go'), 'utf-8').match(/^\/\/ Version (\S+)/m)?.[1]
+  : undefined;
+const appVersion = process.env.VITE_APP_VERSION || sourceVersion || 'dev';
+const appCommit = process.env.VITE_APP_COMMIT || git('git rev-parse --short HEAD') || 'unknown';
+const githubRepo = (process.env.VITE_GITHUB_REPO || git('git remote get-url origin') || 'https://github.com/1466109846/octopus')
+  .replace(/^git@github\.com:/, 'https://github.com/').replace(/\.git$/, '').replace(/\/$/, '');
+const buildInfo = { version: appVersion, repository: githubRepo, commit: appCommit };
 
 export default defineConfig({
   base: './',
@@ -35,15 +36,19 @@ export default defineConfig({
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),
-    // 构建完成后将版本号注入 Service Worker, 确保每次发版缓存自动失效。
+    // 把版本、仓库与提交号写进构建产物: sw.js 的缓存版本号, 以及 build-info.json(供发布校验与直接查阅)。
+    // 走 closeBundle 落盘而不是 emitFile: public/sw.js 会被 Vite 原样拷贝到输出目录,
+    // 再 emit 一个同名资产会撞名; 写盘则是在拷贝完成后原地替换, 顺序稳定。
     {
-      name: 'inject-sw-version',
+      name: 'inject-build-metadata',
       closeBundle() {
-        const swPath = path.resolve(import.meta.dirname, '../static/out/sw.js');
+        const outDir = path.resolve(import.meta.dirname, '../static/out');
+        const swPath = path.join(outDir, 'sw.js');
         if (fs.existsSync(swPath)) {
           const content = fs.readFileSync(swPath, 'utf-8');
-          fs.writeFileSync(swPath, content.replace(/__APP_VERSION__/g, appVersion));
+          fs.writeFileSync(swPath, content.replace(/__APP_VERSION__/g, `${appVersion}-${appCommit}`));
         }
+        fs.writeFileSync(path.join(outDir, 'build-info.json'), JSON.stringify(buildInfo, null, 2) + '\n');
       },
     },
     compression({
@@ -66,7 +71,7 @@ export default defineConfig({
     watch: process.env.DISABLE_HMR === 'true' ? null : {},
     proxy: {
       '/api': {
-        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8080',
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:18874',
         changeOrigin: false,
       },
     },

@@ -7,6 +7,7 @@ export const pageImports = {
     group: () => import('@/components/modules/group'),
     model: () => import('@/components/modules/model'),
     probe: () => import('@/components/modules/scheduled-probe'),
+    keepalive: () => import('@/components/modules/keepalive'),
     log: () => import('@/components/modules/log'),
     setting: () => import('@/components/modules/setting'),
 };

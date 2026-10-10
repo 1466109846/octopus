@@ -10,6 +10,10 @@ import enMessages from '@/locales/en.json';
 import scheduledProbeZhHans from '@/locales/scheduled-probe.zh_hans.json';
 import scheduledProbeZhHant from '@/locales/scheduled-probe.zh_hant.json';
 import scheduledProbeEn from '@/locales/scheduled-probe.en.json';
+// 保活同理单独成文件: 它与模型监控共用任务表, 但界面上是另一个页面、另一套说法。
+import keepaliveZhHans from '@/locales/keepalive.zh_hans.json';
+import keepaliveZhHant from '@/locales/keepalive.zh_hant.json';
+import keepaliveEn from '@/locales/keepalive.en.json';
 
 // mergeMessages 把功能自带的文案并进主文案表; 命名空间互不重叠, 浅合并即可。
 function mergeMessages(base: typeof zh_hansMessages, extra: Record<string, unknown>) {
@@ -17,9 +21,9 @@ function mergeMessages(base: typeof zh_hansMessages, extra: Record<string, unkno
 }
 
 const messages: Record<Locale, typeof zh_hansMessages> = {
-    zh_hans: mergeMessages(zh_hansMessages, { scheduledProbe: scheduledProbeZhHans }),
-    zh_hant: mergeMessages(zh_hantMessages, { scheduledProbe: scheduledProbeZhHant }),
-    en: mergeMessages(enMessages, { scheduledProbe: scheduledProbeEn }),
+    zh_hans: mergeMessages(zh_hansMessages, { scheduledProbe: scheduledProbeZhHans, keepalive: keepaliveZhHans }),
+    zh_hant: mergeMessages(zh_hantMessages, { scheduledProbe: scheduledProbeZhHant, keepalive: keepaliveZhHant }),
+    en: mergeMessages(enMessages, { scheduledProbe: scheduledProbeEn, keepalive: keepaliveEn }),
 };
 
 const languageTags: Record<Locale, string> = {

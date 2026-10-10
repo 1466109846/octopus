@@ -18,6 +18,9 @@ export type ScheduledProbeRow = {
     latency_ms: number;
     message: string;
     probed_at: number;
+    // status_code 是上游返回的 HTTP 状态码：成功为 200，失败时从错误链提取（如 429 排队已满），
+    // 提取不到（网络错误/本地配置错误）为 0。保活页展示它来区分"上游响应了但拒绝"与"根本连不上"。
+    status_code: number;
     // iq_asked 标记这一行有没有被问过智商题。它必须与 iq_answer 分开看：
     // 「没问过」和「问了但答不出数字」的 iq_answer 都是空串，只看答案会把后一种吞成前一种。
     iq_asked: boolean;
@@ -52,16 +55,21 @@ export type ScheduledProbeTarget = {
 
 // ScheduledProbe 是「模型监控」的一条任务：一个自定义名字下面挂若干被监控目标。
 // 名字通常就是模型名，但不拿目标反推：一个任务挂了多个模型时，需要一个能概括它们的称呼。
+//
+// 同一张表也承载「保活」任务，靠 kind 区分：监控任务结论落路由状态（可冷却、参与选路），
+// 保活任务只维持上游活跃、结论只展示。两个页面各按 kind 过滤出自己那一份。
 export type ScheduledProbe = {
     id: number;
     name: string;
+    // kind 区分任务种类，缺省/空串按 monitor 处理（与后端 normalizeProbeKind 同一口径）。
+    kind?: string;
     targets: ScheduledProbeTarget[];
     interval_minutes: number;
     enabled: boolean;
-    // iq_disabled 为真表示这条任务跳过糖果测试，只发 "hi" 测可用性。
+    // iq_disabled 为真表示这条任务跳过糖果测试，只发通信测试话术测可用性。
     // 字段名记的是"关掉"而不是"打开"：缺省（假）即测糖果，于是任何没带这个字段的提交
     // 都落在"照常测糖果"上，不会因为漏传而把糖果悄悄关掉。开着时每一拍发的就是糖果题，
-    // 因为它同时给出心跳结论（通不通、多快），不需要再发一次 "hi"。
+    // 因为它同时给出心跳结论（通不通、多快），不需要再发一次纯测活。
     iq_disabled: boolean;
     // weekdays 是星期掩码（周一为第 0 位，周日为第 6 位），0 表示不限星期。
     // start_hour 与 end_hour 是每天的整点窗口；两者相等视为整天，start > end 表示跨午夜。
@@ -100,10 +108,13 @@ export const SCHEDULED_PROBE_HOURS = Array.from({ length: 24 }, (_, hour) => hou
 // ScheduledProbeInput 是创建与更新共用的提交体，读写同构。
 export type ScheduledProbeInput = {
     name: string;
+    // kind 只在创建时生效（更新时后端保留既有种类），缺省按 monitor；
+    // 保活页的创建走 kind: 'keepalive'，其余字段与监控共用。
+    kind?: string;
     targets: ScheduledProbeTarget[];
     interval_minutes: number;
     enabled: boolean;
-    // iq_disabled 见 ScheduledProbe：缺省即测糖果，关掉才只发 "hi"；提交时不要漏传这一个字段，
+    // iq_disabled 见 ScheduledProbe：缺省即测糖果，关掉才只发通信测试话术；提交时不要漏传这一个字段，
     // 后端是整体替换，漏传等于按"没关"写回去。
     iq_disabled: boolean;
     weekdays: number;

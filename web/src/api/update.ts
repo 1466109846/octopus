@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from './client';
+import type { BuildInfo } from '@/lib/build-info';
+
+export function useBuildInfo() {
+    return useQuery({
+        queryKey: ['update', 'build-info'],
+        queryFn: () => apiRequest<BuildInfo>('/api/v1/update/build-info'),
+        refetchInterval: 300000,
+        refetchOnMount: 'always',
+    });
+}
 
 /**
  * 后端 /api/v1/update 返回的最新发布信息
@@ -65,6 +75,8 @@ export function useUpdateCore() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['update', 'latest'] });
             queryClient.invalidateQueries({ queryKey: ['update', 'now-version'] });
+            // 更新替换的就是二进制本身, 版本/仓库/提交这些构建元数据都会变, 一起失效重拉。
+            queryClient.invalidateQueries({ queryKey: ['update', 'build-info'] });
         },
     });
 }

@@ -27,12 +27,17 @@ export type ProbeFormValues = {
     interval_minutes: number;
     enabled: boolean;
     // iq_disabled 关掉这条任务的糖果测试：开着时每一拍发的都是糖果题（题目的响应本身就带"通不通、多快"），
-    // 关掉才回到只发 "hi" 的纯测活。字段名记的是"关掉"而不是"打开"，与后端一致：缺省即测糖果。
+    // 关掉才回到只发通信测试话术的纯测活。字段名记的是"关掉"而不是"打开"，与后端一致：缺省即测糖果。
     iq_disabled: boolean;
     weekdays: number;
     start_hour: number;
     end_hour: number;
 };
+
+// ProbeFormPurpose 是这张表单服务的任务种类：monitor 为模型监控（默认），keepalive 为保活。
+// 保活与监控共用目标选择、名字与间隔三段，差别只在"没有糖果开关、没有时间窗"——
+// 保活只发最小请求、且要一直有请求打进上游，这两项对它都没有意义。
+export type ProbeFormPurpose = 'monitor' | 'keepalive';
 
 type ProbeFormProps = {
     initial?: ProbeFormValues;
@@ -41,6 +46,10 @@ type ProbeFormProps = {
     isSubmitting: boolean;
     onCancel: () => void;
     onSubmit: (values: ProbeFormValues) => void;
+    // purpose 缺省为 monitor：监控页的两处调用不必改动，保活页显式传 keepalive。
+    purpose?: ProbeFormPurpose;
+    // defaultInterval 是新建时的间隔初值；缺省用监控的默认值（10 分钟），保活页传自己的（5 分钟）。
+    defaultInterval?: number;
 };
 
 // ProbeForm 是创建与编辑共用的表单：一个自定义名字 + 渠道/凭据/模型合并多选 + 间隔 + 时段。
@@ -51,8 +60,21 @@ type ProbeFormProps = {
 //
 // 选项来源是授权列表(channelGrantListQueryOptions)而不是渠道统计：统计只给到"某渠道有哪些模型"，
 // 拿不到凭据名，而这正是这个下拉要展示的第三段。
-export function ProbeForm({ initial, submitText, submittingText, isSubmitting, onCancel, onSubmit }: ProbeFormProps) {
+export function ProbeForm({
+    initial,
+    submitText,
+    submittingText,
+    isSubmitting,
+    onCancel,
+    onSubmit,
+    purpose = 'monitor',
+    defaultInterval = SCHEDULED_PROBE_DEFAULT_INTERVAL,
+}: ProbeFormProps) {
     const t = useTranslations('scheduledProbe');
+    // 保活专属的说明文案单独放在 keepalive 命名空间: 间隔对保活的含义("多久打一次心跳保住队列位")
+    // 与监控("多久体检一次")不同, 共用一句会让一边读着别扭。
+    const tKeepalive = useTranslations('keepalive');
+    const keepalive = purpose === 'keepalive';
     const { data: candidates } = useChannelGrantList();
 
     // 选项列表：候选授权摊成 (渠道, 凭据, 模型) 三段，按标签排序。
@@ -85,7 +107,7 @@ export function ProbeForm({ initial, submitText, submittingText, isSubmitting, o
     const [picked, setPicked] = useState<string[] | null>(null);
     const selected = picked ?? initialValues;
     const [name, setName] = useState(initial?.name ?? '');
-    const [interval, setIntervalValue] = useState(String(initial?.interval_minutes ?? SCHEDULED_PROBE_DEFAULT_INTERVAL));
+    const [interval, setIntervalValue] = useState(String(initial?.interval_minutes ?? defaultInterval));
     // 新建默认开着糖果测试: 糖果题的响应本身就回答了"通不通、多快", 它同时是这条链路信息量最大的探针;
     // 关掉只在"不想为这条通道花糖果题的钱"时才需要。
     const [iqDisabled, setIqDisabled] = useState(initial?.iq_disabled ?? false);
@@ -108,10 +130,12 @@ export function ProbeForm({ initial, submitText, submittingText, isSubmitting, o
             interval_minutes: intervalMinutes,
             // 编辑时保留原有的启停状态：开关在卡片上，表单不该顺手把它打开。
             enabled: initial?.enabled ?? true,
-            iq_disabled: iqDisabled,
-            weekdays,
-            start_hour: startHour,
-            end_hour: endHour,
+            // 保活强制跳过糖果、全天可测：界面上不给这两项的控件，提交体也就不该带着
+            // 表单里残留的默认值（监控默认是"工作日 08–20"），否则保活会在夜里与周末停摆。
+            iq_disabled: keepalive ? true : iqDisabled,
+            weekdays: keepalive ? 0 : weekdays,
+            start_hour: keepalive ? 0 : startHour,
+            end_hour: keepalive ? 0 : endHour,
         });
     };
 
@@ -163,31 +187,36 @@ export function ProbeForm({ initial, submitText, submittingText, isSubmitting, o
                             onChange={(event) => setIntervalValue(event.target.value)}
                             className="rounded-xl"
                         />
-                        <FieldDescription>{t('form.intervalHint')}</FieldDescription>
+                        <FieldDescription>{keepalive ? tKeepalive('form.intervalHint') : t('form.intervalHint')}</FieldDescription>
                     </Field>
 
                     {/* 糖果开关紧跟在间隔之后: 它决定的是"这一拍发什么", 与上面那个"多久发一次"是同一组问题;
-                        两者一起看才知道这条任务要花多少上游流量。 */}
-                    <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1">
-                            <FieldLabel htmlFor="scheduled-probe-iq">{t('form.iq')}</FieldLabel>
-                            <FieldDescription>{t('form.iqHint')}</FieldDescription>
+                        两者一起看才知道这条任务要花多少上游流量。保活只发最小请求, 不出这个开关。 */}
+                    {!keepalive && (
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="space-y-1">
+                                <FieldLabel htmlFor="scheduled-probe-iq">{t('form.iq')}</FieldLabel>
+                                <FieldDescription>{t('form.iqHint')}</FieldDescription>
+                            </div>
+                            <Switch
+                                id="scheduled-probe-iq"
+                                checked={!iqDisabled}
+                                onCheckedChange={(checked) => setIqDisabled(!checked)}
+                                className="mt-0.5"
+                            />
                         </div>
-                        <Switch
-                            id="scheduled-probe-iq"
-                            checked={!iqDisabled}
-                            onCheckedChange={(checked) => setIqDisabled(!checked)}
-                            className="mt-0.5"
-                        />
-                    </div>
+                    )}
 
-                    <Field>
-                        <FieldLabel>{t('form.window')}</FieldLabel>
-                        <WeekdayPicker weekdays={weekdays} onChange={setWeekdays} />
-                        <FieldDescription>{t('form.windowHint')}</FieldDescription>
-                    </Field>
+                    {/* 保活要"一直有请求打进上游", 设了时段就有了空窗, 队列位反而保不住; 故不出时间窗。 */}
+                    {!keepalive && (
+                        <Field>
+                            <FieldLabel>{t('form.window')}</FieldLabel>
+                            <WeekdayPicker weekdays={weekdays} onChange={setWeekdays} />
+                            <FieldDescription>{t('form.windowHint')}</FieldDescription>
+                        </Field>
+                    )}
 
-                    {weekdays !== 0 && (
+                    {!keepalive && weekdays !== 0 && (
                         <div className="grid grid-cols-2 gap-4">
                             <Field>
                                 <FieldLabel htmlFor="scheduled-probe-start">{t('form.startHour')}</FieldLabel>

@@ -10,6 +10,7 @@ import {
 import { Plus } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { useScheduledProbeList } from '@/api/scheduled-probe';
+import { isKeepalive } from '@/api/keepalive';
 import { CreateDialogContent } from './Create';
 import { IQSettingsButton } from './IQSettings';
 import { Item } from './Item';
@@ -59,7 +60,8 @@ export function ScheduledProbe() {
     const now = useProbeClock();
 
     // 顺序直接用后端给的（主键升序）: 那就是轮转顺序, 界面上不该重排。
-    const items = useMemo(() => probes ?? [], [probes]);
+    // 只留监控任务: 保活任务与监控共用同一张表, 那一份归保活页展示（见 api/keepalive.ts）。
+    const items = useMemo(() => (probes ?? []).filter((probe) => !isKeepalive(probe)), [probes]);
 
     if (items.length === 0) {
         return (
