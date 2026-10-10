@@ -243,7 +243,28 @@ The program automatically appends the API version and endpoint path based on the
 
 ---
 
-> 📢 **Note:** This repository is a fork of `bestruirui/octopus`, with the features above and the [Model Monitor](#-model-monitor--scheduled-probe) extending the upstream codebase.
+> 📢 **Note:** This repository is a fork of `bestruirui/octopus`, extending the upstream codebase with the fork-only features documented below and the [Model Monitor](#-model-monitor--scheduled-probe).
+
+### 🧪 Upstream Model Substitution Detection
+
+> **Why**: Upstreams (especially relay/aggregator services) may silently answer with a different model than the one you requested — you ask for `claude-opus-4-8` and pay flagship prices while possibly being served by a cheaper model instead. The client only ever sees the name it sent, so until now there was no local way to spot this "watering down" directly.
+
+The Log page now compares the **requested model** with the model the **upstream response claims to have served** (parsed from the top-level `model` field of the response JSON):
+
+- **Match** → a green check; **mismatch** → a red warning badge showing the model the upstream actually reported, with the full explanation on hover (both on the log card and in the detail dialog)
+- Covers all four forwarding paths (same-protocol passthrough / cross-protocol conversion × streaming / non-streaming) — the final bodies all converge on the request-state finalization points, so parsing happens in exactly one place
+- Nothing is shown when the upstream omits the field (no false alarms); the comparison ignores case and surrounding whitespace
+- **Detection only, no blocking** — for some relays a "model name mapping" is legitimate (the official name differs from the API name); what to do about it is the user's call based on the logs
+
+### 🛡️ Probe Prompt Anti-Ban
+
+> **Why**: The generic `"hi"` probe prompt is easily fingerprinted as probe traffic by upstream sites, risking account bans (some sites already flag probe-like traffic). Accounts are expensive, and probing is a core feature of this program — it must not become unusable.
+
+Probe requests now send a human-sounding radio-check phrase:
+
+> 喂喂喂 通信测试通信测试：请回答1988 收到请回复：是的，1988
+
+The model promptly replies with a short answer, keeping the original minimal-cost path (`max_tokens` stays 16; timeouts and verdict semantics are unchanged). If this phrase ever gets fingerprinted too, only the `probePrompt` constant in `internal/relay/probe.go` needs a change and a rebuild.
 
 ### 📁 Group Management
 
