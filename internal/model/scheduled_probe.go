@@ -40,13 +40,13 @@ type ScheduledProbe struct {
 	Name string `json:"name" gorm:"not null;default:''"`       // 任务的自定义名字, 界面上通常就是模型名。
 	IntervalMinutes int `json:"interval_minutes" gorm:"not null;default:10"` // 两次探测之间的间隔分钟数。
 	Enabled         bool `json:"enabled" gorm:"not null;default:true"`       // 是否参与调度; 停用后不再探测, 配置保留。
-	// IQDisabled 标记这条任务是否跳过糖果测试, 只发"hi"测可用性。
+	// IQDisabled 标记这条任务是否跳过糖果测试, 只发通信测试话术测可用性。
 	//
 	// 记"关掉"而不是"打开": 零值即"测糖果", 于是老任务、老请求体、以及任何没带这个字段的调用方
 	// 都落在"照常测糖果"上 —— 一个默认把功能关掉的字段, 会让"升级后糖果灯不再更新"看起来像故障。
 	// 这也是本仓库既有的偏好(见 ExcludedKeys 的注释: 记排除谁而不是只留谁)。
 	//
-	// 开着时每一拍都直接发糖果题, 不再额外发 "hi": 糖果题的响应本身就带"通不通、多快",
+	// 开着时每一拍都直接发糖果题, 不再额外发通信测试话术: 糖果题的响应本身就带"通不通、多快",
 	// 一次请求同时给出心跳与糖果两个结论, 而分成两种请求只会让同一段时间里多一倍上游流量。
 	IQDisabled bool `json:"iq_disabled" gorm:"not null;default:false"`
 	// Weekdays 是时间窗的星期掩码, 0 表示不限制星期(全天可测)。
@@ -76,7 +76,7 @@ type ScheduledProbe struct {
 	CreditOrder []string `json:"credit_order" gorm:"serializer:json"`
 }
 
-// IQProbeEnabled 返回这条任务这一拍该问糖果题还是该问 "hi"。
+// IQProbeEnabled 返回这条任务这一拍该问糖果题还是该发通信测试话术。
 //
 // 用一个取反的访问器而不是让调用方各自写 !probe.IQDisabled: 调度器判断的是"问什么",
 // 而字段存的是"关没关", 这个转换只该有一处; 将来若再加一层全局开关, 也只改这里。
