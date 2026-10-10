@@ -2,7 +2,9 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +60,11 @@ type RequestState struct {
 	TargetProtocol   model.Protocol `json:"target_protocol"`    // 最新一轮实际请求上游的协议, 与 Protocol 不同即本轮做了跨协议转换; 0 表示尚未选出。
 	Sending          bool           `json:"sending"`            // 最新一轮是否仍在等待上游响应。
 	Error            string         `json:"error,omitempty"`    // 最新一轮的失败原因, 请求结束后即为最终错误。
+	// ResponseModel 是上游响应正文里声称服务的模型名, 取自最终交付正文的顶层 model 字段。
+	// 与 TargetModel 未必相同: 上游(尤其是中转)实际换用别的模型回话时, 这里记下的是它自称的模型,
+	// 界面据此提示"请求的模型与响应的模型不一致", 是识别上游掺水(偷换模型)的直接线索。
+	// 上游没给该字段或正文读不出时为空串, 界面不展示对比。
+	ResponseModel string `json:"response_model,omitempty"`
 
 	RetryErrors []RetryError `json:"retry_errors,omitempty"` // 本次请求全部失败轮次的历史, 只增不减, 最近 maxRetryErrors 条。
 
@@ -265,6 +272,7 @@ func (r *RequestState) markSucceeded(responseBody string, usage *llm.Usage) {
 	r.Status = StatusSuccess
 	r.Error = ""
 	r.responseBody = responseBody
+	r.captureResponseModelLocked(responseBody)
 	r.finishLocked(usage)
 }
 
@@ -286,6 +294,7 @@ func (r *RequestState) markFailed(err error, responseBody string, usage *llm.Usa
 	if responseBody != "" {
 		r.responseBody = responseBody
 	}
+	r.captureResponseModelLocked(responseBody)
 	r.finishLocked(usage)
 }
 
@@ -302,7 +311,32 @@ func (r *RequestState) markCanceled(err error, responseBody string, usage *llm.U
 	if responseBody != "" {
 		r.responseBody = responseBody
 	}
+	r.captureResponseModelLocked(responseBody)
 	r.finishLocked(usage)
+}
+
+// captureResponseModelLocked 记下响应正文里上游声称的模型名; 读不出时保持现状, 不覆盖已有取值。
+// 四种转发路径(透传/转换 × 流式/非流式)的正文都汇流到定稿这三处, 故解析只此一地。
+func (r *RequestState) captureResponseModelLocked(body string) {
+	if model := responseModelOf(body); model != "" {
+		r.ResponseModel = model
+	}
+}
+
+// responseModelOf 从响应正文的顶层 model 字段取出上游声称服务的模型名; 读不出时返回空串。
+// 只对对象形状的 JSON 正文解析: 正文还可能是纯文本错误、SSE 片段或空串, 交给解码器是白跑一趟。
+func responseModelOf(body string) string {
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "{") {
+		return ""
+	}
+	var envelope struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(envelope.Model)
 }
 
 // finishLocked 写入用量和费用, 发布终态, 更新请求级统计并裁剪历史; 调用方必须持有锁。

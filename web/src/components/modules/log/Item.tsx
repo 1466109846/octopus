@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Brain, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, Zap, Percent } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, BadgeCheck, Brain, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, TriangleAlert, Zap, Percent } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
@@ -62,6 +62,45 @@ const PROTOCOL_LABELS: Record<number, string> = {
     [Protocol.OpenAIResponse]: 'Response',
     [Protocol.AnthropicMessage]: 'Message',
 };
+
+// responseModelMismatch 判断响应模型与请求模型是否不一致。
+// 大小写与首尾空白不参与比较: 上游把模型名改个大小写不算掺水, 那边界噪声不该报警。
+export function responseModelMismatch(requested: string, responded: string): boolean {
+    const left = requested.trim().toLowerCase();
+    const right = responded.trim().toLowerCase();
+    return left !== '' && right !== '' && left !== right;
+}
+
+// ResponseModelBadge 展示上游响应正文里声称的模型与请求模型的对比:
+// 一致时给一个低调的确认图标, 不一致时用醒目的警告徽标列出上游实际回报的模型名, 防上游掺水(偷换模型)。
+// 上游没在正文里给 model 字段时什么都不渲染。
+function ResponseModelBadge({ log }: { log: RelayLogOverview }) {
+    const t = useTranslations('log.card');
+    const responded = (log.response_model ?? '').trim();
+    if (!responded) return null;
+    const requested = log.target_model || log.model;
+    if (!responseModelMismatch(requested, responded)) {
+        return (
+            <Badge
+                variant="outline"
+                className="gap-1 px-1.5 py-0 text-xs text-emerald-600 dark:text-emerald-400"
+                title={t('responseModelMatchedHint', { model: responded })}
+            >
+                <BadgeCheck aria-hidden="true" />
+            </Badge>
+        );
+    }
+    return (
+        <Badge
+            variant="destructive"
+            className="gap-1 px-1.5 py-0 text-xs"
+            title={t('responseModelMismatchHint', { requested, response: responded })}
+        >
+            <TriangleAlert aria-hidden="true" />
+            <span className="max-w-36 truncate">{responded}</span>
+        </Badge>
+    );
+}
 
 // LogMetrics 渲染时间、API Key、耗时、费用和 Token 指标; card 变体用于卡片栅格, footer 变体用于弹窗底部。
 function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; now: number; brandColor: string; variant: 'card' | 'footer' }) {
@@ -215,6 +254,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                         {log.target_channel_key || '-'}
                     </Badge>
                     <span className="text-muted-foreground">{actualModel}</span>
+                    {!requestActive && <ResponseModelBadge log={log} />}
                 </span>
             </MorphingDialogTitle>
 
@@ -483,6 +523,7 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                                 <span className="text-muted-foreground truncate">
                                     {actualModel}
                                 </span>
+                                {!requestRunning && <ResponseModelBadge log={log} />}
                             </span>
                         </div>
                         <div className="grid grid-cols-20 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-11">

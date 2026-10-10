@@ -481,7 +481,9 @@
             "firstToken": "Time from request arrival to first output, including retries",
             "cacheRate": "Cache Hit Rate",
             "waitingResponse": "Waiting for upstream response",
-            "responseStreaming": "Upstream responded; streaming is in progress"
+            "responseStreaming": "Upstream responded; streaming is in progress",
+            "responseModelMatchedHint": "Response model matches the request: {model}",
+            "responseModelMismatchHint": "Possible model substitution: requested {requested}, upstream reported {response}"
         }
     },
     "channel": {

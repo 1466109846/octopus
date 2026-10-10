@@ -39,6 +39,9 @@ export interface RelayLogOverview {
     round_started_at: string;
     target_channel_key: string; // 本轮选中的渠道名称和 Key 名称, 以空格分隔。
     target_model: string;
+    // response_model 是上游响应正文里声称服务的模型名, 取自最终交付正文; 上游没给该字段时省略。
+    // 与 target_model(我们请求上游的模型)未必相同: 中转换用别的模型回话时, 两者不一致是掺水的直接线索。
+    response_model?: string;
     target_protocol: number;
     sending: boolean;
     error?: string;

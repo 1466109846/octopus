@@ -481,7 +481,9 @@
             "firstToken": "首字耗时：从请求到达到首字输出，包含重试",
             "cacheRate": "缓存命中率",
             "waitingResponse": "正在等待上游响应",
-            "responseStreaming": "上游已响应，流式传输正在进行"
+            "responseStreaming": "上游已响应，流式传输正在进行",
+            "responseModelMatchedHint": "响应模型与请求一致：{model}",
+            "responseModelMismatchHint": "疑似掺水：请求 {requested}，上游响应回报 {response}"
         }
     },
     "channel": {
