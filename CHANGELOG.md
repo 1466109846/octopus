@@ -19,6 +19,7 @@ This fork tracks upstream `bestruirui/octopus` and carries fork-specific v0.13.9
 
 ### Fixed
 - **any圣 渠道 18 个模型的协议位** — 此前全部被勾成 OpenAI Responses(4), 实测 13 个 Claude 模型与 `gpt-6-astra-cc-format` 只接受 `/v1/messages`(8); `gpt-6-astra` / `gpt-5.6-sol` 维持 Responses(4); `claude-opus-5-5` / `gpt-5-codex` / `gemini-2.5-pro` 三端点均不支持（上游未开放）。协议位修正后, `invalid codex request` 类错误（协议与模型不匹配）不再出现。
+- **渠道更新漏写 `client_emulation` 列** — `ChannelUpdate` 逐列点名写回（不能整行覆盖, 否则统计列被抹）, 而列白名单漏抄了新字段: 设置写进内存缓存、看起来立即生效, 但落库被静默跳过, 重启后悄悄回退。白名单收敛为 `channelUpdateColumns` 并新增反射守闸测试 `TestChannelUpdateColumnsCoverConfig`: 给 `ChannelConfig` 加字段而没登记列名, 测试直接失败。
 
 ### Notes
 - 伪装是 opt-in: 不开的渠道出站请求与旧版逐字节一致。

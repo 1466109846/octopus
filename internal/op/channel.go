@@ -122,6 +122,17 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	return &created, nil
 }
 
+// channelUpdateColumns 是渠道更新时逐列写回的 ChannelConfig 字段清单。
+// 必须是全部可编辑字段 (统计列不在其中: 由转发累加, 见 ChannelUpdate 内的说明);
+// 新增可编辑字段时在此补一列, TestChannelUpdateColumnsCoverConfig 会盯着这件事 ——
+// 漏登记的字段会写进缓存却落不了库, 重启后悄悄回退旧值 (client_emulation 就这样丢过一次)。
+var channelUpdateColumns = []string{
+	"name", "dialect", "enabled", "base_url",
+	"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
+	"openai_image_generation_path", "openai_image_edit_path",
+	"proxy", "channel_proxy", "client_emulation", "custom_header", "param_override", "match_regex",
+}
+
 // ChannelUpdate 按提交的完整配置整体替换渠道及其凭据, 模型与授权, 返回刷新后的配置。
 // 提交即全量而非按字段比对增量: 渠道是人工编辑的十几个字段, 表单本就一次给出完整配置,
 // 未列出的凭据与模型会被删除并级联删除其授权。
@@ -136,11 +147,10 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
 		// 而统计列由转发累加, 不在提交范围内, 整行覆盖会把它抹回提交时的旧值。
+		// 新增的可编辑列必须登记到 channelUpdateColumns: 漏登记的字段会写进缓存却落不了库, 重启后悄悄回退旧值;
+		// TestChannelUpdateColumnsCoverConfig 以反射守这道闸。
 		if err := tx.Model(&model.Channel{}).Where("id = ?", detail.ID).
-			Select("name", "dialect", "enabled", "base_url",
-				"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
-				"openai_image_generation_path", "openai_image_edit_path",
-				"proxy", "channel_proxy", "custom_header", "param_override", "match_regex").
+			Select(channelUpdateColumns).
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
 			return fmt.Errorf("failed to update channel: %w", err)
 		}
