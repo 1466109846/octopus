@@ -8,6 +8,7 @@ export type ChannelFormState = {
     base_url: string;
     enabled: boolean;
     proxy: boolean;
+    client_emulation: ChannelDetail['client_emulation'];
     openai_chat_completion_path: string;
     openai_response_path: string;
     anthropic_message_path: string;
@@ -49,6 +50,7 @@ export const emptyFormState: ChannelFormState = {
     base_url: '',
     enabled: true,
     proxy: false,
+    client_emulation: '',
     openai_chat_completion_path: '/v1/chat/completions',
     openai_response_path: '/v1/responses',
     anthropic_message_path: '/v1/messages',
@@ -71,6 +73,7 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         base_url: channel.base_url,
         enabled: channel.enabled,
         proxy: channel.proxy,
+        client_emulation: channel.client_emulation,
         openai_chat_completion_path: channel.openai_chat_completion_path,
         openai_response_path: channel.openai_response_path,
         anthropic_message_path: channel.anthropic_message_path,
@@ -100,6 +103,7 @@ export function toChannelConfig(state: ChannelFormState) {
         openai_image_generation_path: state.openai_image_generation_path.trim(),
         openai_image_edit_path: state.openai_image_edit_path.trim(),
         proxy: state.proxy,
+        client_emulation: state.client_emulation,
         custom_header: state.custom_header.filter((h) => h.header_key.trim() && h.header_value !== ''),
         channel_proxy: state.channel_proxy.trim(),
         param_override: state.param_override.trim(),

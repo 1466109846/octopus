@@ -3,6 +3,27 @@
 All notable changes to this project's fork are documented here.
 This fork tracks upstream `bestruirui/octopus` and carries fork-specific v0.13.9.x / v0.13.10.x features.
 
+## [v0.13.10.3] — 2026-10-10
+
+**客户端伪装（Claude Code / Codex）+ any圣渠道协议修正** — 上游校验客户端身份, 网关自己的请求头被拒（"请启用 1m 上下文后重试" / "invalid codex request"）; 附带修正 any圣 渠道 18 个模型被批量勾错的协议位。
+
+### Added
+- **客户端伪装（渠道级）** — 渠道配置新增 `client_emulation` 字段与「连接」页下拉: 不伪装（默认）/ Claude Code / Codex。部分上游（尤为 Claude Code / Codex 系中转）按请求头里的客户端身份判定请求是否来自官方客户端, 不是就拒绝 — 与请求内容、协议、钥匙均无关。
+  - **Claude Code** 模式: `claude-cli` User-Agent / `X-App: cli` / `anthropic-version`, 并**默认带上 1M 上下文 beta 头**（`context-1m-2025-08-07`); `anthropic-beta` 按叠加处理, 已有其他 beta 值时追加而不覆盖; 其余身份头仅在缺失时补齐。
+  - **Codex** 模式: `originator: codex_cli_rs`、`OpenAI-Beta: responses=experimental`、`Version`、Session / Thread / Turn 元数据等一组 Codex CLI 会话形状的请求头, 每次请求现生成会话 ID。
+  - **只加身份头**: 不改 URL、协议与请求体 — 走哪条端点仍由授权协议位的勾选决定, 两者正交。
+  - **注入点统一**: 转发-透传、转发-转换、测活（监控与保活）经由 `applyChannelConfig` 天然全覆盖; 模型拉取（`/models`）与图片转发不在该管线上, 各自显式补同一组头 — "表单里试拉"与"保存后转发"看到的客户端身份一致。
+  - **顺序契约**: 伪装头先铺底, 渠道 `custom_header` 最后覆盖 — 想改用别的 UA 或 beta 组合, 用自定义 Header 显式覆盖即可。
+  - **保存时校验**伪装取值: 非法值在提交时拒绝, 而不是落库后等首次转发才以错误暴露。
+- **回归测试** — `internal/relay/emulation_test.go`: 两种模式的头集合、已有头不被覆盖、`anthropic-beta` 合并不重复、custom_header 覆盖顺序、默认渠道零注入。
+
+### Fixed
+- **any圣 渠道 18 个模型的协议位** — 此前全部被勾成 OpenAI Responses(4), 实测 13 个 Claude 模型与 `gpt-6-astra-cc-format` 只接受 `/v1/messages`(8); `gpt-6-astra` / `gpt-5.6-sol` 维持 Responses(4); `claude-opus-5-5` / `gpt-5-codex` / `gemini-2.5-pro` 三端点均不支持（上游未开放）。协议位修正后, `invalid codex request` 类错误（协议与模型不匹配）不再出现。
+
+### Notes
+- 伪装是 opt-in: 不开的渠道出站请求与旧版逐字节一致。
+- `invalid codex request` 的根因有两层: 模型被勾错协议位（走错端点）+ 上游确实校验客户端身份头; 本次两层一并修复。
+
 ## [v0.13.10.2] — 2026-10-10
 
 **保活（Keepalive）+ 构建元数据对齐** — 上游排队需要持续心跳；上一版发布把旧前端打进新后端，版本信息页一直报"不匹配"。

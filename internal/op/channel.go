@@ -203,6 +203,10 @@ func normalizeChannelConfig(config model.ChannelConfig) (model.ChannelConfig, er
 	if config.CustomHeader == nil {
 		config.CustomHeader = []model.CustomHeader{}
 	}
+	// 伪装模式在保存时校验: 非法值在转发侧只能以错误跳过, 那时代码已落库, 问题要到首次转发才暴露。
+	if !model.ClientEmulationValid(config.ClientEmulation) {
+		return config, fmt.Errorf("unsupported client emulation: %q", config.ClientEmulation)
+	}
 
 	config.ChannelProxy = strings.TrimSpace(config.ChannelProxy)
 	config.ParamOverride = strings.TrimSpace(config.ParamOverride)

@@ -41,9 +41,42 @@ type ChannelConfig struct {
 	OpenAIImageEditPath       string         `json:"openai_image_edit_path" gorm:"column:openai_image_edit_path;default:/v1/images/edits"`                   // OpenAI 图片编辑请求路径; 留空由后端填默认路径。
 	Proxy                     bool           `json:"proxy" gorm:"default:false"`                                                                             // 是否使用代理。
 	ChannelProxy              string         `json:"channel_proxy"`                                                                                          // 渠道专用代理地址; 留空表示不用渠道专用代理。
+	// ClientEmulation 是上游请求的客户端伪装模式, 见 ClientEmulation 的取值。
+	// 部分上游(尤为 Claude Code / Codex 中转)会校验客户端身份——按 User-Agent / originator 等头
+	// 判定请求是否来自官方客户端, 不伪装时返回 invalid codex request 之类的拒绝。
+	// 伪装只加"客户端身份"这一层, 不改协议与请求体: 走哪条端点仍由授权协议决定。
+	ClientEmulation ClientEmulation `json:"client_emulation" gorm:"not null;default:''"`
 	CustomHeader              []CustomHeader `json:"custom_header" gorm:"serializer:json"`                                                                   // 追加到上游请求的 Header。
 	ParamOverride             string         `json:"param_override"`                                                                                         // 请求参数覆盖配置; 留空表示不覆盖。
 	MatchRegex                string         `json:"match_regex"`                                                                                            // 拉取模型列表时的过滤表达式; 留空表示不过滤。
+}
+
+// ClientEmulation 是上游请求的客户端身份伪装模式。
+// 空串(默认)不伪装: 请求头保持网关自身的形状。
+// 伪装只影响请求头, 不改 URL, 协议与请求体 —— 协议仍由授权位的勾选决定, 两者正交。
+type ClientEmulation string
+
+const (
+	// ClientEmulationNone 不伪装(默认)。
+	ClientEmulationNone ClientEmulation = ""
+	// ClientEmulationClaudeCode 伪装 Claude Code CLI: 带 claude-cli User-Agent 与 1M 上下文 beta 头。
+	// 1M beta 头(context-1m-2025-08-07)默认带上: 实测 anyrouter 这类中转在缺它时直接拒绝
+	// (「请启用 1m 上下文后重试」), 且该 beta 对不支持的上游是无害的额外头。
+	ClientEmulationClaudeCode ClientEmulation = "claude_code"
+	// ClientEmulationCodex 伪装 Codex CLI: 带 originator / OpenAI-Beta / 会话头等 Codex 身份头集合。
+	ClientEmulationCodex ClientEmulation = "codex"
+)
+
+// ClientEmulationValid 判断伪装模式是否为已知取值。
+// 保存入口用它拦下非法值: 转发侧对未知模式只能报错跳过, 那时代码已经落库,
+// 问题要到首次转发才暴露; 在保存时拒绝, 错误才落在发起保存的人眼前。
+func ClientEmulationValid(emulation ClientEmulation) bool {
+	switch emulation {
+	case ClientEmulationNone, ClientEmulationClaudeCode, ClientEmulationCodex:
+		return true
+	default:
+		return false
+	}
 }
 
 // 单个上游渠道的共享配置; 路径按协议分别配置, 凭据由 ChannelKey 提供。

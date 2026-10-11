@@ -24,6 +24,7 @@
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
 - 🗄️ **Multi-Database Support** - Support for SQLite, MySQL, PostgreSQL
+- 🎭 **Client Emulation** - Per-channel Claude Code / Codex client impersonation headers for upstreams that validate client identity
 
 
 ## 🚀 Quick Start
@@ -279,6 +280,23 @@ The **Keepalive** page sends a minimal request to each selected channel/credenti
 - **Display only, never routing**: a failed keepalive does not cool the channel down, does not lower its health score and never affects failover — exactly the opposite of what you would want here.
 - Keepalive always sends the minimal probe request (never the candy/IQ question), and runs all day (no time window) to avoid prolonged periods of inactivity; it cannot guarantee that an upstream will keep your queue position.
 - Manual "keepalive now" works per credential or for the whole task, with per-row verdicts.
+
+### 🎭 Client Emulation (Claude Code / Codex)
+
+> **Why**: Some upstreams (especially Claude Code / Codex relay services) validate the client identity in request headers and reject requests that don't look like they come from the official client. Two rejections reproduced against a real upstream: a relay answered `请启用 1m 上下文后重试` ("enable 1M context and retry") when the 1M-context beta header was missing, and a new-api based codex channel answered `invalid codex request` when `originator` / `OpenAI-Beta` were missing. The gateway's own requests never carry these headers, so both probes and forwarding get rejected — unrelated to the request itself, the protocol or the key: it is purely an identity issue.
+
+The channel form's **Connection** step now has a **Client Emulation** dropdown, choosing which official client the outbound request should impersonate:
+
+- **None (default)** — keeps the gateway's own request shape; behavior is byte-for-byte what it was before
+- **Claude Code** — sends the `claude-cli` User-Agent / `X-App: cli`, and **always includes the 1M-context beta header** (`context-1m-2025-08-07`); `anthropic-beta` is additive, so an existing beta value is appended to rather than overwritten
+- **Codex** — fills in `originator: codex_cli_rs`, `OpenAI-Beta: responses=experimental`, `Version`, and the Session / Thread / Turn metadata headers that make up the Codex CLI session shape
+
+Key points:
+
+- **Header-only emulation**: URL, protocol and request body are untouched — which endpoint to use (Chat / Responses / Messages) is still decided by the granted protocol bits; the two are orthogonal
+- Covers every outbound path: forwarding (passthrough and conversion), probing (monitor and keepalive), model fetching and image forwarding — so "try fetching in the form" and "forward after saving" present the same client identity
+- **Ordering contract**: emulation lays down defaults first, and the channel's **custom headers override last** — to use a different UA or beta set, override it explicitly with a custom header
+- Identity headers that already exist (e.g. passed through from the client) are only filled in when missing, never force-overwritten
 
 ### 📁 Group Management
 

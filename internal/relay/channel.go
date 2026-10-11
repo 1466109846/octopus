@@ -81,6 +81,12 @@ func applyChannelConfig(channel model.Channel, request *httpclient.Request) erro
 		}
 	}
 
+	// 客户端伪装: 按官方客户端形状补身份头, 放在自定义 Header 之前,
+	// 让 custom_header 保留最高优先级 (最后一个能改写伪装默认值的环节)。
+	if err := ApplyClientEmulation(channel.ClientEmulation, request.Headers); err != nil {
+		return err
+	}
+
 	// 转换器已经写入的认证等敏感 Header 不允许被自定义配置覆盖。
 	for _, header := range channel.CustomHeader {
 		if request.Headers.Get(header.HeaderKey) != "" && httpclient.IsSensitiveHeader(header.HeaderKey) {

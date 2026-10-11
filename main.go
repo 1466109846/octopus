@@ -2,7 +2,24 @@ package main
 
 import "github.com/bestruirui/octopus/cmd"
 
-// Version v0.13.10.2
+// Version v0.13.10.3
+// 客户端伪装(Client Emulation): 部分上游(尤为 Claude Code / Codex 中转)会校验客户端身份,
+// 按 User-Agent / originator / anthropic-beta 等头判定请求是否来自官方客户端, 不带就拒绝 ——
+// anyrouter 类中转在缺 1M 上下文 beta 头时直接回"请启用 1m 上下文后重试"; new-api 系
+// codex 通道缺 originator/OpenAI-Beta 时回"invalid codex request"。
+// 渠道级新增 client_emulation 字段与"连接"页下拉: 不伪装(默认) / Claude Code / Codex。
+// 伪装只加身份头, 不改 URL、协议与请求体: 走哪条端点仍由授权协议位的勾选决定, 两者正交。
+// Claude Code 模式默认带上 1M 上下文 beta 头(context-1m-2025-08-07, 实测必需), 且
+// anthropic-beta 按叠加处理: 已有其他 beta 值时追加而不是覆盖; 其余身份头仅在缺失时补齐。
+// Codex 模式补齐 originator=codex_cli_rs / OpenAI-Beta=responses=experimental / Version /
+// Session 与 Turn 元数据等一组 Codex CLI 会话形状的请求头。
+// 注入点统一在 applyChannelConfig 之前沿: 转发-透传、转发-转换与测活两条路径天然全覆盖;
+// 模型拉取(拉 /models)与图片转发不在该管线上, 各自显式补同一组头, 保证"表单里试拉"与
+// "保存后转发"看到的客户端身份一致。顺序契约: 伪装头先铺底, 渠道 custom_header 最后覆盖,
+// 伪装默认值可被渠道显式改写。
+// 保存入口校验伪装取值, 非法值在提交时就拒绝, 而不是落库后等首次转发才以错误暴露。
+// 修复 any圣渠道协议: 13 个 Claude 模型与 gpt-6-astra-cc-format 实为 /v1/messages 协议
+// (此前被批量勾成 Responses), 按真实钥匙的三端点探测结果修正授权协议位。
 // 保活(keepalive): 新增与模型监控并列的独立页面, 按间隔向指定渠道·凭据发送最小请求以维持
 // 上游活跃度与排队位。与监控共用同一张任务表、同一调度器与轮转/间隔均摊机制, 靠 kind 字段分流:
 // 保活结论只落独立的结果表用于展示, 失败不冷却渠道、不降健康分、不影响选路 ——

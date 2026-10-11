@@ -373,6 +373,11 @@ func sendImageUpstream(ctx context.Context, client *http.Client, channel model.C
 	}
 	upstream.Header.Set("Accept", accept)
 	upstream.Header.Set("Authorization", "Bearer "+key.Key)
+	// 图片转发不走 applyChannelConfig, 伪装头与自定义头在此按同一顺序补齐:
+	// 伪装先铺底, 自定义 Header 最后覆盖。
+	if err := ApplyClientEmulation(channel.ClientEmulation, upstream.Header); err != nil {
+		return nil, err
+	}
 	for _, header := range channel.CustomHeader {
 		if header.HeaderKey != "" && header.HeaderValue != "" {
 			if httpclient.IsSensitiveHeader(header.HeaderKey) && upstream.Header.Get(header.HeaderKey) != "" {

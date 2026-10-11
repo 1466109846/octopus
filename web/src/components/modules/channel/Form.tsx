@@ -13,6 +13,7 @@ import { useMorphingDialog } from '@/components/ui/morphing-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { FormGrants } from './FormGrants';
 import { FormKeys } from './FormKeys';
@@ -26,6 +27,10 @@ import {
 } from './state';
 
 type StepID = 'preset' | 'connection' | 'keys' | 'grants' | 'advanced';
+
+// CLIENT_EMULATION_NONE 是伪装下拉里"不伪装"选项的值名。
+// Radix Select 不允许空串作为选项值, 而提交体与后端约定用空串表示不伪装, 故在此做一层翻译。
+const CLIENT_EMULATION_NONE = '__none__';
 
 // ChannelForm 新建与编辑共用; 编辑时按 id 取回整份配置, 到齐后再进表单。
 // 配置不随渠道列表下发, 故编辑必然要等这一趟请求; 占位与表单同高, 弹窗不会因此跳动。
@@ -41,7 +46,7 @@ export function ChannelForm({ channelId, onBack }: {
     }
     if (!detail) {
         return (
-            <div className="flex items-center justify-center h-[min(29rem,calc(100vh-10rem))]">
+            <div className="flex items-center justify-center h-[min(34rem,calc(100vh-10rem))]">
                 <p className="text-sm text-muted-foreground">
                     {isError ? t('detailFailed') : isPending ? t('detailLoading') : null}
                 </p>
@@ -151,12 +156,12 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
     };
 
     // 表单高度固定, 否则切换步骤时弹窗会随内容高度跳动; 内容更高的步骤由步骤区内部滚动消化。
-    // 29rem 是连接页恰好铺满所需: 首行留白 8px + 五个字段组 290px + 五道间距 80px + 开关行 20px + 底部按钮 52px。
+    // 34rem 是连接页恰好铺满所需: 原 29rem 的预算上增加伪装下拉一组 (标签 14px + 间距 8px + 控件 36px + 步距 16px = 74px)。
     // 各步骤首行统一落在同一水平线: connection 与 advanced 的首行是无边框文案, 补 8px 才能与步骤导航的按钮文案对齐;
     // keys 与 grants 的首行是 36px 控件行, 文案居中后天然齐平, 无需补白。步骤区自带 4px 内边距供焦点环显示。
     // calc 一项夹住矮屏, 弹窗不提供滚动, 内容超出视口时底部按钮会点不到。详情视图取同一高度以对齐尺寸。
     return (
-        <form onSubmit={submit} className="flex flex-col gap-3 md:flex-row md:gap-6 h-[min(29rem,calc(100dvh-5rem))]">
+        <form onSubmit={submit} className="flex flex-col gap-3 md:flex-row md:gap-6 h-[min(34rem,calc(100dvh-5rem))]">
             <nav className="md:w-28 shrink-0 flex md:flex-col gap-1 overflow-x-auto pt-1">
                 {steps.map((s) => (
                     <button
@@ -254,6 +259,29 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                         <span className="text-sm">{label}</span>
                                     </label>
                                 ))}
+                            </div>
+                            {/* 客户端伪装: 部分上游按客户端身份放行, 这里选择伪装成哪个官方客户端;
+                                空值走 Radix 允许的空串值名, 提交时翻译回 ''。 */}
+                            <div className="space-y-2">
+                                <Label htmlFor={`${idPrefix}-client-emulation`}>{t('clientEmulation')}</Label>
+                                <Select
+                                    value={state.client_emulation === '' ? CLIENT_EMULATION_NONE : state.client_emulation}
+                                    onValueChange={(value) => updateState({
+                                        ...state,
+                                        client_emulation: value === CLIENT_EMULATION_NONE
+                                            ? ''
+                                            : value as ChannelDetail['client_emulation'],
+                                    })}
+                                >
+                                    <SelectTrigger id={`${idPrefix}-client-emulation`} className="w-full rounded-xl">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={CLIENT_EMULATION_NONE}>{t('clientEmulationNone')}</SelectItem>
+                                        <SelectItem value="claude_code">{t('clientEmulationClaudeCode')}</SelectItem>
+                                        <SelectItem value="codex">{t('clientEmulationCodex')}</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     )}

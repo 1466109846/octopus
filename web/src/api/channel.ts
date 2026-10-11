@@ -18,6 +18,12 @@ export const Protocol = {
 // 地址与路径不属于方言范畴，由前端按服务商预填到渠道字段上。
 export type Dialect = 'generic';
 
+// ClientEmulation 是上游请求的客户端身份伪装模式（与后端 model.ClientEmulation 对齐）。
+// 部分上游（尤为 Claude Code / Codex 中转）按 User-Agent / originator / beta 头判定请求
+// 是否来自官方客户端，不伪装时直接拒绝（如 invalid codex request / 请启用 1m 上下文后重试）。
+// 空串为不伪装；伪装只影响请求头，不改协议与请求体——走哪条端点仍由授权协议位决定。
+export type ClientEmulation = '' | 'claude_code' | 'codex';
+
 type CustomHeader = {
     header_key: string;
     header_value: string;
@@ -74,6 +80,7 @@ export type ChannelDetail = {
     models: string[]; // 上游模型名称；模型除名称外没有界面用得上的字段。
     grants: ChannelGrant[];
     proxy: boolean;
+    client_emulation: ClientEmulation; // 客户端伪装模式；'' 为不伪装。
     custom_header: CustomHeader[];
     param_override: string;
     channel_proxy: string;

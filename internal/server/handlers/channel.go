@@ -15,6 +15,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/rhttp"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
@@ -374,6 +375,10 @@ func fetchOpenAIModels(httpClient *http.Client, ctx context.Context, target mode
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
+	// 伪装头与转发路径同源, 保证"表单里试拉"与"保存后转发"看到同一客户端身份。
+	if err := relay.ApplyClientEmulation(target.ClientEmulation, req.Header); err != nil {
+		return nil, err
+	}
 	for _, header := range target.CustomHeader {
 		if header.HeaderKey != "" {
 			req.Header.Set(header.HeaderKey, header.HeaderValue)
@@ -407,6 +412,10 @@ func fetchAnthropicModels(httpClient *http.Client, ctx context.Context, target m
 		}
 		req.Header.Set("X-Api-Key", key)
 		req.Header.Set("Anthropic-Version", "2023-06-01")
+		// 伪装头与转发路径同源; 放在自定义 Header 之前, 自定义仍能覆盖伪装默认值。
+		if err := relay.ApplyClientEmulation(target.ClientEmulation, req.Header); err != nil {
+			return nil, err
+		}
 		for _, header := range target.CustomHeader {
 			if header.HeaderKey != "" {
 				req.Header.Set(header.HeaderKey, header.HeaderValue)
