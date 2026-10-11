@@ -9,3 +9,7 @@ static/out/*
 /.probe-test/
 __pycache__/
 *.pyc
+
+# 本地构建产物 (go build . 会落在仓库根, 不进版本库)
+/octopus.exe
+/octopus

@@ -277,6 +277,8 @@ The **Keepalive** page sends a minimal request to each selected channel/credenti
 
 - Queue, interval amortization, credential rotation and per-credential rows are shared with Model Monitor (same task table, split by task kind); the two pages never mix.
 - Each row shows the latest heartbeat's status chip, **HTTP status code** and latency: `429/503` means the request reached the upstream but was rejected; no status code usually means a timeout, network failure or local configuration problem. **A response code alone does not prove the upstream reserved your queue slot**.
+- **Keeps knocking while the upstream is busy**: on a busy rejection (`429` queue full / `500`, `502`, `503`, `504` transient upstream failures) the same round retries with backoff (up to 3 attempts, 2s→4s, whole-round budget 60s) — so the moment a queue slot opens you can slip in, instead of knocking once per cycle (default 5 minutes). The verdict notes "retried N times, still rejected" so you can see the behavior working.
+- Retry boundaries: timeouts and network errors (no status code) are never retried — that would turn one hang into three; 4xx other than 429 (wrong key, unknown model) are deterministic and are not retried either.
 - **Display only, never routing**: a failed keepalive does not cool the channel down, does not lower its health score and never affects failover — exactly the opposite of what you would want here.
 - Keepalive always sends the minimal probe request (never the candy/IQ question), and runs all day (no time window) to avoid prolonged periods of inactivity; it cannot guarantee that an upstream will keep your queue position.
 - Manual "keepalive now" works per credential or for the whole task, with per-row verdicts.
