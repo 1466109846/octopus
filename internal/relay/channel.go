@@ -57,6 +57,13 @@ var clientHeaderPlaceholder = regexp.MustCompile(`\{client_header:[^}]+\}`)
 
 // applyChannelConfig 按渠道配置覆盖上游请求的参数并追加自定义 Header; model 与 stream 由转发流程决定, 不允许覆盖。
 func applyChannelConfig(channel model.Channel, request *httpclient.Request) error {
+	// 客户端伪装-体层: 在参数覆盖之前补齐请求体身份形状, 让渠道的显式覆盖保持最高优先级 ——
+	// 与头层的顺序契约一致 (伪装给默认值, 渠道配置最后定稿)。仅 Claude Code 模式的
+	// Messages 端点生效, 其余情况一个字节都不动, 见 applyClientEmulationBody。
+	if err := applyClientEmulationBody(channel.ClientEmulation, request); err != nil {
+		return err
+	}
+
 	if channel.ParamOverride != "" {
 		var overrides map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(channel.ParamOverride), &overrides); err != nil {

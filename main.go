@@ -2,21 +2,39 @@ package main
 
 import "github.com/bestruirui/octopus/cmd"
 
-// Version v0.13.10.3
+// Version v0.13.10.4
+// 客户端伪装-体层(Claude Code 请求体身份形状): 上一版补齐了身份头, 但上游对 CC 供给路径
+// (anyrouter 的 fable 类模型)还校验请求体形状 —— 用真机 Claude Code 2.1.296 经本地 mock
+// 捕获完整请求后逐项消融确认, 三项硬门槛:
+//   - system 必须是数组且首块为官方标记行(CC 身份行 "You are Claude Code..." 或 Agent SDK 行;
+//     真机 2.1.x 首块是计费头 "x-anthropic-billing-header:", 此时第二块须为身份行)。
+//     字符串形态或首块为普通文本一律被拒(503), 即使字符串里含身份行也不行;
+//   - metadata.user_id 必须是可解析的 v2 JSON(device_id 非空 + session_id 为合法 UUID 文本)
+//     或 legacy 行(user_<64hex>_account__session_<uuid>); session_id 用非法 UUID(如 'b'*36)
+//     同样被拒。device_id/session_id 随机生成即可, 上游只做形状与归组;
+//   - 请求必须流式: 非流式(含 stream 缺失)对 CC 供给路径恒定 520 空响应, stream=true 才能触达。
+// 实测对照(同分钟交错): 真机完整体 10/10 拿到 200 真实回复; 轻体(缺任一门槛)恒定 503。
+// 落地: applyClientEmulationBody 在 applyChannelConfig 的参覆盖之前补齐 system 与 metadata
+// (顺序契约与头层一致: 伪装铺底、param_override/custom_header 最后覆盖), 只对
+// Claude Code + Messages 端点生效, 已有合法形状逐字节保留 —— 真实 CC 客户端经网关转发不被改写。
+// 测活侧: CC 伪装渠道的可用性测活与糖果测试一律按客户端形状走流式 ——
+// 可用性测活读到首事件即证可达(与转发同路径); 糖果测试沿事件流收集后用入站转换器聚合出
+// 完整正文再判分(runProbeBodyStreaming)。其余渠道行为与旧版逐字节一致。
+//
 // 客户端伪装(Client Emulation): 部分上游(尤为 Claude Code / Codex 中转)会校验客户端身份,
 // 按 User-Agent / originator / anthropic-beta 等头判定请求是否来自官方客户端, 不带就拒绝 ——
 // anyrouter 类中转在缺 1M 上下文 beta 头时直接回"请启用 1m 上下文后重试"; new-api 系
 // codex 通道缺 originator/OpenAI-Beta 时回"invalid codex request"。
 // 渠道级新增 client_emulation 字段与"连接"页下拉: 不伪装(默认) / Claude Code / Codex。
-// 伪装只加身份头, 不改 URL、协议与请求体: 走哪条端点仍由授权协议位的勾选决定, 两者正交。
+// 伪装头层只加身份头, 不改 URL 与协议: 走哪条端点仍由授权协议位的勾选决定, 两者正交。
 // Claude Code 模式默认带上 1M 上下文 beta 头(context-1m-2025-08-07, 实测必需), 且
 // anthropic-beta 按叠加处理: 已有其他 beta 值时追加而不是覆盖; 其余身份头仅在缺失时补齐。
 // Codex 模式补齐 originator=codex_cli_rs / OpenAI-Beta=responses=experimental / Version /
 // Session 与 Turn 元数据等一组 Codex CLI 会话形状的请求头。
 // 注入点统一在 applyChannelConfig 之前沿: 转发-透传、转发-转换与测活两条路径天然全覆盖;
 // 模型拉取(拉 /models)与图片转发不在该管线上, 各自显式补同一组头, 保证"表单里试拉"与
-// "保存后转发"看到的客户端身份一致。顺序契约: 伪装头先铺底, 渠道 custom_header 最后覆盖,
-// 伪装默认值可被渠道显式改写。
+// "保存后转发"看到的客户端身份一致。顺序契约: 伪装先铺底, 渠道 custom_header 与
+// param_override 最后覆盖, 伪装默认值可被渠道显式改写。
 // 保存入口校验伪装取值, 非法值在提交时就拒绝, 而不是落库后等首次转发才以错误暴露。
 // 修复 any圣渠道协议: 13 个 Claude 模型与 gpt-6-astra-cc-format 实为 /v1/messages 协议
 // (此前被批量勾成 Responses), 按真实钥匙的三端点探测结果修正授权协议位。

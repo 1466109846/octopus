@@ -24,7 +24,7 @@
 - 🎨 **优雅界面** - 简洁美观的 Web 管理面板
 - 📦 **轻量单文件部署** - 单个二进制文件即可运行，无需额外运行时依赖
 - 🗄️ **多数据库支持** - 支持 SQLite、MySQL、PostgreSQL
-- 🎭 **客户端伪装** - 按渠道伪装 Claude Code / Codex 客户端身份头，应对校验客户端身份的上游
+- 🎭 **客户端伪装** - 按渠道伪装 Claude Code / Codex 客户端身份（头 + 请求体形状），应对校验客户端身份的上游；测活与糖果测试同形状走流式
 
 
 ## 🚀 快速开始
@@ -285,10 +285,19 @@ http://localhost:5173
 
 要点：
 
-- **伪装只加身份头，不改 URL、协议与请求体**：走哪条端点（Chat / Responses / Messages）仍由授权协议位的勾选决定，两者正交
+- **伪装分两层，都不改 URL 与协议方向**：头层补身份头，体层（仅 Claude Code + Messages）补请求体身份形状；走哪条端点（Chat / Responses / Messages）仍由授权协议位的勾选决定，与伪装正交
 - 覆盖全部出站路径：转发（透传与转换）、测活（监控与保活）、模型拉取、图片转发——"表单里试拉"与"保存后转发"看到的客户端身份一致
-- **顺序契约**：伪装头先铺底，渠道的**自定义 Header 最后覆盖**——想改用别的 UA 或 beta 组合时，用自定义 Header 显式覆盖即可
-- 已存在的身份头（如客户端透传的 User-Agent）仅在缺失时补齐，不强行覆盖
+- **顺序契约**：伪装先铺底，渠道的**自定义 Header 与参数覆盖最后生效**——想改用别的 UA / beta 组合 / system 时就显式覆盖
+- 已存在的合法形状（如客户端透传的 User-Agent、真实 CC 客户端自己的 system 与 metadata）逐字节保留，伪装只补缺失项
+
+**Claude Code 模式的两层伪装细节**（均为对照实测得出的硬门槛）：
+
+- **头层**：`claude-cli` User-Agent / `X-App: cli`，并**默认带上 1M 上下文 beta 头**（`context-1m-2025-08-07`，缺它直接 400）；`anthropic-beta` 按叠加处理，渠道已有其他 beta 值时追加而不是覆盖
+- **体层**（Messages 端点）：
+  - `system` 规范为数组且首块为官方标记行（`You are Claude Code, Anthropic's official CLI for Claude.` 或 Agent SDK 行）；真机 2.1.x 的计费头（`x-anthropic-billing-header:`）打头时，身份行插到它后面
+  - `metadata.user_id` 规范为可解析的 v2 JSON（`device_id` + 合法 UUID 的 `session_id`；`account_uuid` 可空）或 legacy 行——随机生成即可
+  - 只对 Claude Code + Messages 生效；不开伪装的渠道与不支持 Messages 的端点一个字节都不动
+- **测活按客户端形状走流式**：真实 Claude Code 对 Messages 永远流式，且上游的 CC 供给路径对非流式请求不回内容（实测 520 空响应）。因此 Claude Code 模式的可用性测活（监控 / 保活 / 模型页）与糖果测试均按流式发出；糖果测试沿事件流收集后用协议转换器聚合出完整正文再判分
 
 ### 📡 渠道管理
 

@@ -265,20 +265,25 @@ func (m *conversionMiddleware) OnOutboundLlmResponse(_ context.Context, response
 	return response, nil
 }
 
+// inboundTransformerFor 按客户端协议取入站转换器: 用于把客户端协议请求解析进统一模型,
+// 以及把一段事件流聚合回该协议的完整正文。协议与转换器的对应关系是固定的, 单点维护防止各处漂移。
+func inboundTransformerFor(format llm.APIFormat) transformer.Inbound {
+	switch format {
+	case llm.APIFormatOpenAIResponse:
+		return responses.NewInboundTransformer()
+	case llm.APIFormatAnthropicMessage:
+		return anthropic.NewInboundTransformer()
+	default:
+		return openai.NewInboundTransformer()
+	}
+}
+
 // sendConverted 经 axonhub pipeline 把客户端请求转换成渠道协议后请求上游, 响应再转换回客户端协议。
 func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Request, channel model.Channel, outbound transformer.Outbound, streaming bool) (*upstreamResponse, error) {
 	if err := validateConversionReferences(format, outbound.APIFormat(), raw); err != nil {
 		return nil, err
 	}
-	var inbound transformer.Inbound
-	switch format {
-	case llm.APIFormatOpenAIResponse:
-		inbound = responses.NewInboundTransformer()
-	case llm.APIFormatAnthropicMessage:
-		inbound = anthropic.NewInboundTransformer()
-	default:
-		inbound = openai.NewInboundTransformer()
-	}
+	inbound := inboundTransformerFor(format)
 
 	httpClient, closeIdle, err := resolveUpstreamClient(channel)
 	if err != nil {

@@ -386,9 +386,11 @@ func ProbeIQGrant(ctx context.Context, grantID int, questionID string) ProbeResu
 	if err != nil {
 		return ProbeResult{ItemID: grantID, Message: err.Error(), ProbedAt: time.Now().UnixMilli()}
 	}
-	// 非流式: 要判分就得拿到完整的回答正文, 非流式一次响应就是全文。
-	// 走流式则要拼齐整个事件流, 平白多一层解析, 换不来任何东西。
-	request, err := buildProbeRequest(ctx, outbound, channel, channelModel.Name, question.Prompt, iqProbeMaxTokens, false)
+	// 要判分就得拿到完整的回答正文: 默认非流式一次响应就是全文。
+	// 例外: Claude Code 伪装渠道必须走流式再聚合 —— 上游的 CC 供给路径对非流式请求不回内容
+	// (实测 520), 正文只能沿事件流收集 (见 runProbeBodyStreaming), 否则这些渠道的糖果测试永远判不出分。
+	ccStreaming := emulatedClientUsesStreaming(channel.ClientEmulation)
+	request, err := buildProbeRequest(ctx, outbound, channel, channelModel.Name, question.Prompt, iqProbeMaxTokens, ccStreaming)
 	if err != nil {
 		return ProbeResult{ItemID: grantID, Message: err.Error(), ProbedAt: time.Now().UnixMilli()}
 	}
@@ -401,7 +403,13 @@ func ProbeIQGrant(ctx context.Context, grantID int, questionID string) ProbeResu
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	startedAt := time.Now()
-	body, probeErr := runProbeBody(probeCtx, outbound, channel, channelModel.Name, request, passthrough, false)
+	var body []byte
+	var probeErr error
+	if ccStreaming {
+		body, probeErr = runProbeBodyStreaming(probeCtx, outbound, channel, channelModel.Name, request, passthrough)
+	} else {
+		body, probeErr = runProbeBody(probeCtx, outbound, channel, channelModel.Name, request, passthrough, false)
+	}
 	latency := time.Since(startedAt).Milliseconds()
 	if probeErr != nil {
 		message := probeErr.Error()

@@ -24,7 +24,7 @@
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
 - 🗄️ **Multi-Database Support** - Support for SQLite, MySQL, PostgreSQL
-- 🎭 **Client Emulation** - Per-channel Claude Code / Codex client impersonation headers for upstreams that validate client identity
+- 🎭 **Client Emulation** - Per-channel Claude Code / Codex client impersonation (headers + request-body shape) for upstreams that validate client identity; probes and the candy test follow the same shape over streaming
 
 
 ## 🚀 Quick Start
@@ -293,10 +293,19 @@ The channel form's **Connection** step now has a **Client Emulation** dropdown, 
 
 Key points:
 
-- **Header-only emulation**: URL, protocol and request body are untouched — which endpoint to use (Chat / Responses / Messages) is still decided by the granted protocol bits; the two are orthogonal
+- **Emulation has two layers, neither touching the URL or protocol direction**: the header layer adds identity headers, the body layer (Claude Code + Messages only) adds the request-body identity shape. Which endpoint to use (Chat / Responses / Messages) is still decided by the granted protocol bits; the two are orthogonal
 - Covers every outbound path: forwarding (passthrough and conversion), probing (monitor and keepalive), model fetching and image forwarding — so "try fetching in the form" and "forward after saving" present the same client identity
-- **Ordering contract**: emulation lays down defaults first, and the channel's **custom headers override last** — to use a different UA or beta set, override it explicitly with a custom header
-- Identity headers that already exist (e.g. passed through from the client) are only filled in when missing, never force-overwritten
+- **Ordering contract**: emulation lays down defaults first, and the channel's **custom headers and parameter overrides take effect last** — override explicitly to use a different UA / beta set / system prompt
+- Existing valid shapes (e.g. a client's passthrough User-Agent, or a real Claude Code client's own system and metadata) are preserved byte-for-byte; emulation only fills in what is missing
+
+**Claude Code mode — the two layers in detail** (every rule below is a hard gate measured against a real upstream):
+
+- **Header layer**: the `claude-cli` User-Agent / `X-App: cli`, plus the **1M-context beta header by default** (`context-1m-2025-08-07`; missing it is an immediate 400); `anthropic-beta` is additive, so an existing beta value is appended to rather than overwritten
+- **Body layer** (Messages endpoint):
+  - `system` is normalized to an array whose first block is an official marker line (`You are Claude Code, Anthropic's official CLI for Claude.` or the Agent SDK line); when the real 2.1.x billing line (`x-anthropic-billing-header:`) comes first, the identity line is inserted right after it
+  - `metadata.user_id` is normalized to parseable v2 JSON (`device_id` + a well-formed UUID `session_id`; `account_uuid` may be empty) or the legacy format — randomly generated values are accepted
+  - Only applies to Claude Code + Messages; channels without emulation and endpoints that are not Messages stay byte-for-byte unchanged
+- **Probes follow the client's streaming shape**: the real Claude Code client always streams to the Messages endpoint, and the upstream's CC supply path returns no content for non-streaming requests (measured: HTTP 520 empty response). So for channels in Claude Code mode, availability probes (monitor / keepalive / model page) and the candy (IQ) test all stream; the candy test collects the full event stream and aggregates it through the inbound transformer before grading
 
 ### 📁 Group Management
 

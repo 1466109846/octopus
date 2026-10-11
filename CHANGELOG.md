@@ -3,6 +3,24 @@
 All notable changes to this project's fork are documented here.
 This fork tracks upstream `bestruirui/octopus` and carries fork-specific v0.13.9.x / v0.13.10.x features.
 
+## [v0.13.10.4] — 2026-10-11
+
+**客户端伪装·体层（Claude Code 请求体身份形状）+ 测活按客户端形状走流式** — 上一版补齐了身份头, 但 anyrouter 的 CC 供给路径（fable 类模型）还校验**请求体形状**: 头对了、体不对, 仍恒定 503。
+
+### Added
+- **请求体身份形状（Claude Code 模式, Messages 端点）** — 与头层同一顺序契约（伪装铺底、渠道配置最后覆盖）。用真机 Claude Code 2.1.296 经本地 mock 捕获完整请求后逐项消融确认, 三项硬门槛:
+  - **system 必须是数组, 且首块为官方标记行** — CC 身份行 `You are Claude Code, Anthropic's official CLI for Claude.` 或 Agent SDK 行; 真机 2.1.x 首块是计费头 `x-anthropic-billing-header:`, 此时身份行插到它后面（身份行放计费头之前同样被拒）。字符串形态转数组（`[身份行, 原文]`), 首块为普通文本则前置身份行。
+  - **`metadata.user_id` 必须是可解析的 v2 JSON**（`device_id` 非空 + `session_id` 为合法 UUID 文本; `account_uuid` 可空）或 legacy 行 `user_<64hex>_account__session_<uuid>`; 缺失、不可解析或 session_id 形状不对一律被拒。随机生成即可——上游只做形状与归组。
+  - **已有合法形状逐字节保留** — 真实 CC 客户端经本网关转发不被改写; 只对 Claude Code + Messages 生效, 其余渠道出站体与旧版逐字节一致。
+- **测活按客户端形状走流式（Claude Code 模式）** — 上游的 CC 供给路径对非流式请求不回内容（实测 HTTP 520 空响应）, 流式才能触达真实上游。可用性测活（监控/保活/模型页）读到首事件即证可达; 糖果测试沿事件流收集后用入站转换器聚合出完整正文再判分（`runProbeBodyStreaming`）。实测: 修正前 fable 类模型的测活永远是"通但被拒"或空响应; 修正后与真实客户端同形状, 同分钟交错对照中真机完整体 10/10 拿到 200 真实回复。
+
+### Fixed
+- **`any圣` 渠道 fable 类模型测活 503** — 根因即上述体层形状校验: 头部齐备但体是"网关自造的最小形状"时被拒; 补齐后测活请求与真实 CC 客户端同形状。
+
+### Notes
+- 三项门槛均为实测对照（同分钟交错, 真机完整体 vs 轻体）: 轻体（缺任一门槛）恒定被拒, 完整体 10/10 得到真实回复。
+- 体层同样只在 `client_emulation = claude_code` 时生效, 与头层互不牵连。
+
 ## [v0.13.10.3] — 2026-10-10
 
 **客户端伪装（Claude Code / Codex）+ any圣渠道协议修正** — 上游校验客户端身份, 网关自己的请求头被拒（"请启用 1m 上下文后重试" / "invalid codex request"）; 附带修正 any圣 渠道 18 个模型被批量勾错的协议位。

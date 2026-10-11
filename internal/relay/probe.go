@@ -105,6 +105,12 @@ func ProbeItem(ctx context.Context, groupID, itemID int, streaming bool) (ProbeR
 		return recordProbe(group, itemID, false, err.Error(), 0), nil
 	}
 
+	// Claude Code 伪装渠道: 测活按 CC 客户端的流式形状发出 —— 客户端永远流式,
+	// 且上游的 CC 供给路径对非流式不回内容 (实测 520)。见 emulatedClientUsesStreaming。
+	if emulatedClientUsesStreaming(channel.ClientEmulation) {
+		streaming = true
+	}
+
 	request, err := buildProbeRequest(ctx, outbound, channel, channelModel.Name, probePrompt, probeMaxTokens, streaming)
 	if err != nil {
 		return recordProbe(group, itemID, false, err.Error(), 0), nil
@@ -230,6 +236,9 @@ func runProbe(ctx context.Context, outbound transformer.Outbound, channel model.
 // 只做非流式: 流式下要拼齐整个事件流才能得到完整回答, 而探针用非流式一次拿全更简单可靠 ——
 // 定时测活本来就是非流式(见 runScheduledProbe), 这条限制不牺牲任何现有能力。
 // streaming 为真时返回 nil 正文, 调用方据此把结论记为"未问出答案"而不是判错。
+//
+// 例外: Claude Code 伪装渠道即使要正文也必须走流式 —— 上游的 CC 供给路径对非流式请求不回内容
+// (实测 520), 拿正文只能沿事件流收集再聚合, 见 runProbeBodyStreaming。
 func runProbeBody(ctx context.Context, outbound transformer.Outbound, channel model.Channel, modelName string, request *httpclient.Request, passthrough, streaming bool) ([]byte, error) {
 	if streaming {
 		return nil, runProbe(ctx, outbound, channel, modelName, request, passthrough, streaming)
@@ -246,6 +255,69 @@ func runProbeBody(ctx context.Context, outbound transformer.Outbound, channel mo
 		return nil, err
 	}
 	return result.body, nil
+}
+
+// runProbeBodyStreaming 以流式发一次探测, 读完整事件流并按客户端协议聚合出完整正文。
+//
+// 供 Claude Code 伪装渠道的智商探针使用: 上游的 CC 供给路径只对流式请求出内容,
+// 而判分需要模型的完整回答, 于是先把事件全部收齐, 再用与入站同一枚转换器聚合
+// (与转发链 handler.go 里"转发完事件流再聚合出让量与正文"的做法同源)。
+// 首事件之后的中途失败按协议终态判定: 事件里携带的错误(如 overloaded)以 error 返回,
+// 由调用方按通道失败处理, 而不是拿半截正文去判分。
+func runProbeBodyStreaming(ctx context.Context, outbound transformer.Outbound, channel model.Channel, modelName string, request *httpclient.Request, passthrough bool) ([]byte, error) {
+	var (
+		result *upstreamResponse
+		err    error
+	)
+	if passthrough {
+		result, err = sendPassthrough(ctx, outbound.APIFormat(), request, channel, outbound, true, modelName)
+	} else {
+		result, err = sendConverted(ctx, outbound.APIFormat(), request, channel, outbound, true)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if result.events != nil {
+			result.events.Close()
+		}
+		if result.closeIdle != nil {
+			result.closeIdle()
+		}
+	}()
+
+	format := outbound.APIFormat()
+	chunks := make([]*httpclient.StreamEvent, 0, 16)
+	last := false
+	if result.first != nil {
+		chunks = append(chunks, result.first)
+		last = result.last
+	}
+	for !last {
+		if !result.events.Next() {
+			err := result.events.Err()
+			if err == nil {
+				err = errors.New("upstream stream ended before terminal event")
+			}
+			return nil, err
+		}
+		event := result.events.Current()
+		if event == nil || len(event.Data) == 0 {
+			continue
+		}
+		var inspectErr error
+		last, inspectErr = inspectStreamEvent(format, event)
+		if inspectErr != nil {
+			return nil, fmt.Errorf("%w: %s", inspectErr, event.Data)
+		}
+		chunks = append(chunks, event)
+	}
+	// 聚合必须脱离本轮超时上下文: 事件已在手, 聚合是纯内存计算, 不该因预算掐点被弃掉。
+	body, _, aggregateErr := inboundTransformerFor(format).AggregateStreamChunks(context.WithoutCancel(ctx), chunks)
+	if aggregateErr != nil {
+		return nil, fmt.Errorf("aggregate probe stream: %w", aggregateErr)
+	}
+	return body, nil
 }
 
 // probePassthrough 以同协议透传方式发一次测活请求并判定成败。
@@ -309,6 +381,10 @@ func ProbeChannelGrant(ctx context.Context, grantID int, streaming bool) ProbeRe
 	outbound, _, passthrough, err := buildOutbound(channel, grant, *channelKey, model.ProtocolOpenAIChatCompletion)
 	if err != nil {
 		return ProbeResult{ItemID: grantID, Message: err.Error(), ProbedAt: time.Now().UnixMilli()}
+	}
+	// Claude Code 伪装渠道: 测活按 CC 客户端的流式形状发出, 见 emulatedClientUsesStreaming。
+	if emulatedClientUsesStreaming(channel.ClientEmulation) {
+		streaming = true
 	}
 	request, err := buildProbeRequest(ctx, outbound, channel, channelModel.Name, probePrompt, probeMaxTokens, streaming)
 	if err != nil {
