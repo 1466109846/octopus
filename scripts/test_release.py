@@ -74,6 +74,16 @@ class ReleaseBuildTests(unittest.TestCase):
                 self.assertIn('THIRD_PARTY_LICENSES.csv', z.namelist())
                 self.assertIn('build-info.json', z.namelist())
 
+    def test_checksums_use_lf_regardless_of_platform_default(self):
+        # Windows 上 write_text 会把 \n 翻成 \r\n, 而 Linux/macOS 的 sha256sum -c 会把 '\r'
+        # 拼进文件名导致七个包全部 FAILED; 校验文件必须是逐字节 LF 行尾。
+        with tempfile.TemporaryDirectory() as root:
+            assets = Path(root)
+            release.write_checksums(assets, ['bb  b.zip', 'aa  a.zip'])
+            raw = (assets / 'SHA256SUMS').read_bytes()
+            self.assertNotIn(b'\r', raw)
+            self.assertEqual(raw, b'aa  a.zip\nbb  b.zip\n')
+
 
 if __name__ == '__main__':
     unittest.main()

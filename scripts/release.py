@@ -78,6 +78,13 @@ def run(command, *, env, cwd=ROOT, stdout=None):
     subprocess.run(command, cwd=cwd, env=env, stdout=stdout, check=True)
 
 
+def write_checksums(assets, checksums):
+    # newline='' 抑制 Windows 的 \n -> \r\n 翻译: SHA256SUMS 会被 Linux/macOS 的
+    # sha256sum -c 直接消费, 行尾带 \r 时那边把 '\r' 拼进文件名, 七个包全部校验失败。
+    with (assets / 'SHA256SUMS').open('w', encoding='ascii', newline='') as f:
+        f.write('\n'.join(sorted(checksums)) + '\n')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--targets', nargs='+', choices=TARGETS, default=list(TARGETS))
@@ -159,7 +166,7 @@ def main():
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         checksums.append(f'{digest}  {archive.name}')
         print('Packaged:', archive.name, flush=True)
-    (assets / 'SHA256SUMS').write_text('\n'.join(sorted(checksums)) + '\n', encoding='ascii')
+    write_checksums(assets, checksums)
     shutil.copyfile(metadata_file, assets / metadata_file.name)
     print('Release assets verified:', assets, flush=True)
 
